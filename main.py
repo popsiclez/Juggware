@@ -1,3 +1,4 @@
+#1
 import dearpygui.dearpygui as dpg
 import urllib.request
 import ctypes
@@ -66,7 +67,7 @@ DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWCP_ROUND = 2  # Rounded corners preference
 
 # Temporary folder path (created on startup, deleted on exit)
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.getcwd()
 TEMP_FOLDER = os.path.join(SCRIPT_DIR, "temp")
 
 # Configuration folder paths
