@@ -1,4 +1,3 @@
-#1
 import dearpygui.dearpygui as dpg
 import urllib.request
 import ctypes
@@ -6,6 +5,7 @@ import ctypes.wintypes
 import win32gui
 import win32api
 import win32con
+import winsound
 import time
 import psutil
 import os
@@ -37,10 +37,10 @@ from OpenGL.GL import *
 # =============================================================================
 
 # Remote configuration
-TITLE_URL = "https://raw.githubusercontent.com/popsiclez/PopsicleCS2/refs/heads/main/title.txt"
-STATUS_URL = "https://raw.githubusercontent.com/popsiclez/PopsicleCS2/refs/heads/main/status"
-VERSION_URL = "https://raw.githubusercontent.com/popsiclez/PopsicleCS2/refs/heads/main/version.txt"
-FALLBACK_TITLE = "Popsicle CS2"
+TITLE_URL = "https://raw.githubusercontent.com/popsiclez/Juggware/refs/heads/main/title"
+STATUS_URL = "https://raw.githubusercontent.com/popsiclez/Juggware/refs/heads/main/cheatstatus"
+VERSION_URL = "https://raw.githubusercontent.com/popsiclez/Juggware/refs/heads/main/cheatversion"
+FALLBACK_TITLE = "CS2 Cheat"
 
 # Offsets download URL
 OFFSETS_URL = "https://www.dropbox.com/scl/fi/3w66y2kzkbn3x8mjnsfkq/offsets.exe?rlkey=fd423j7k5ljbz913bp74f9jnr&st=l99v5czg&dl=1"
@@ -49,10 +49,20 @@ OFFSETS_URL = "https://www.dropbox.com/scl/fi/3w66y2kzkbn3x8mjnsfkq/offsets.exe?
 GITHUB_OFFSETS_URL = "https://raw.githubusercontent.com/popsiclez/offsets/refs/heads/main/output/offsets.json"
 GITHUB_CLIENT_DLL_URL = "https://raw.githubusercontent.com/popsiclez/offsets/refs/heads/main/output/client_dll.json"
 
+# Sound file URLs
+HITMARKER_SOUND_URL = "https://www.dropbox.com/scl/fi/zculofdxbyhrw0ra39lz3/hitmarker.wav?rlkey=lnqoq2kqigujegqkn17ofwnc2&st=8pt44bmy&dl=1"
+METALHIT_SOUND_URL = "https://www.dropbox.com/scl/fi/o0u1eum40x6plywnf3wd9/metal.wav?rlkey=df5lg3s2yxvsxrx1wj34ama5i&st=3uyrtqeu&dl=1"
+CRITICALHIT_SOUND_URL = "https://www.dropbox.com/scl/fi/r3b55ge6sug7oeop6xnkr/criticalhit.wav?rlkey=7xu9h4j7kq70i0djcihkj9a13&st=t3ef4ihn&dl=1"
+
 # Window dimensions
 WINDOW_WIDTH = 600
 WINDOW_HEIGHT = 400
 TITLEBAR_HEIGHT = 30
+
+# UI Spacing Constants
+UI_SPACING_SMALL = 5    # Small spacing between related elements
+UI_SPACING_MEDIUM = 10  # Medium spacing between sections
+UI_SPACING_LARGE = 15   # Large spacing between major sections
 
 # Win32 extended window style constants
 GWL_EXSTYLE = -20
@@ -135,6 +145,7 @@ Default_Config = {
     "armor_bar": True,
     "healthbar_type": "Vertical Left",   # "Vertical Left", "Vertical Right", "Horizontal Above", "Horizontal Below"
     "name_esp": True,
+    "distance_esp": True,
     "head_dot": True,
     "team_color": (71, 167, 106),      # Legacy - kept for compatibility
     "enemy_color": (196, 30, 58),      # Legacy - kept for compatibility
@@ -155,12 +166,21 @@ Default_Config = {
     "team_head_dot_color": (255, 255, 0),    # Yellow for team head dot
     # Bomb ESP
     "bomb_esp": True,                        # Show planted bomb info
+    # Footstep ESP
+    "footstep_esp": False,                   # Show footstep rings around enemies making noise
+    "footstep_esp_color": (255, 165, 0),     # Orange color for footstep rings
+    "footstep_esp_duration": 1.0,            # Duration of ring animation in seconds
     # Antialiasing
     "antialiasing": "4x MSAA",              # "None", "2x MSAA", "4x MSAA", "8x MSAA"
     # Menu Colorway
     "menu_colorway": "Default",             # UI color theme preset
     # Menu Font
     "menu_font": "Default",                 # UI font
+    # Window Size
+    "window_width": 600,                   # Cheat window width
+    "window_height": 400,                  # Cheat window height
+    # Menu Transparency
+    "menu_transparency": 255,              # Menu window transparency (0-255, 255 = opaque)
     # ESP Thickness
     "box_thickness": 1.5,                   # Box outline thickness (1.0 - 5.0)
     "snapline_thickness": 1.5,              # Snapline thickness (1.0 - 5.0)
@@ -169,8 +189,10 @@ Default_Config = {
     "radar_enabled": False,                 # Enable radar overlay
     "radar_size": 200,                      # Radar diameter in pixels
     "radar_scale": 40.0,                     # Scale factor (higher = zoomed out)
-    "radar_position": "Top Right",          # Position on screen
+    "radar_x": 0,                           # X offset from screen center (negative = left, positive = right)
+    "radar_y": 0,                           # Y offset from screen center (negative = up, positive = down)
     "radar_opacity": 180,                   # Background opacity (0-255)
+    "radar_overlap_game": False,            # Lock radar to overlap game radar position
     # Radar Colors
     "radar_bg_color": (0, 0, 0),            # Radar background color
     "radar_border_color": (128, 128, 128),  # Radar border color
@@ -182,6 +204,7 @@ Default_Config = {
     "aimbot_enabled": False,                # Enable aimbot
     "aimbot_radius": 50,                    # Aimbot FOV radius (pixels)
     "aimbot_smoothness": 5.0,               # Aimbot smoothness (1-100)
+    "aimbot_movement_type": "Linear",      # Movement type: "Linear" or "Dynamic"
     "aimbot_show_radius": True,             # Show aimbot radius circle
     "aimbot_spotted_check": False,          # Only aim at spotted enemies
     "aimbot_require_key": True,             # Require aimbot key to be held
@@ -189,12 +212,27 @@ Default_Config = {
     "aimbot_target_bone": "Head",           # Target bone for aimbot
     "aimbot_deadzone_enabled": False,       # Enable aimbot deadzone
     "aimbot_deadzone_radius": 10,           # Deadzone radius (pixels)
-    "aimbot_show_deadzone": False,          # Show deadzone circle
+    "aimbot_show_deadzone": True,          # Show deadzone circle
+    "aimbot_snaplines": False,              # Show snaplines to aimbot targets
     # Aimbot Colors
-    "aimbot_radius_color": (255, 0, 0),     # Aimbot radius circle color
-    "aimbot_deadzone_color": (255, 255, 0), # Aimbot deadzone circle color
+    "aimbot_radius_color": (255, 0, 0),     # Neutral State
+    "aimbot_deadzone_color": (255, 255, 0), # Neutral State
+    "aimbot_targeting_radius_color": (0, 255, 0),  # Targeting State
+    "aimbot_targeting_deadzone_color": (0, 0, 255), # Targeting State
+    "aimbot_snapline_color": (255, 255, 255), # Aimbot snapline color
+    "aimbot_radius_transparency": 180,      # Aimbot radius circle transparency (0-255)
+    "aimbot_deadzone_transparency": 180,    # Aimbot deadzone circle transparency (0-255)
+    "aimbot_radius_thickness": 2.0,         # Aimbot radius circle thickness
+    "aimbot_deadzone_thickness": 1.5,       # Aimbot deadzone circle thickness
+    "aimbot_snapline_thickness": 2.0,       # Aimbot snapline thickness
     # Spotted ESP
     "spotted_esp": True,                    # Show spotted/visibility indicator
+    "hide_spotted_players": False,          # Hide ESP elements for spotted players
+    "custom_crosshair": False,              # Show custom crosshair at screen center
+    "custom_crosshair_scale": 1.0,          # Scale multiplier for crosshair size
+    "custom_crosshair_color": (255, 255, 255), # Crosshair color (RGB)
+    "custom_crosshair_thickness": 2.0,      # Crosshair line thickness
+    "custom_crosshair_shape": "Sus",        # Crosshair shape preset
     "spotted_color": (0, 255, 0),           # Color when spotted (green)
     "not_spotted_color": (255, 0, 0),       # Color when not spotted (red)
     "spotted_text_size": 12.0,              # Spotted text font size
@@ -220,10 +258,10 @@ Default_Config = {
     "acs_line_transparency": 80,            # Deadzone line transparency (0-255)
     "acs_line_color": (255, 0, 0),           # Deadzone line color (RGB)
     # Misc Features
-    "auto_accept_enabled": False,           # Auto accept match when found
     "anti_flash_enabled": False,            # Prevent flashbang blindness
     "hide_on_tabout": True,                 # Hide overlay and menu when tabbing out of CS2
     "show_tooltips": True,                  # Show tooltips on hover
+    "show_status_labels": True,             # Show feature status labels in overlay
     # Camera FOV Changer
     "fov_changer_enabled": False,           # Enable FOV modification
     "fov_value": 90,                        # Desired FOV value (68-140)
@@ -233,6 +271,10 @@ Default_Config = {
     "rcs_strength_y": 100,                  # Vertical recoil compensation (0-100%)
     "rcs_smoothness": 1,                    # RCS smoothness (1-10, 1=instant, 10=very smooth)
     "rcs_multiplier": 2.0,                  # RCS multiplier for fine-tuning (1.8-2.2)
+    "rcs_continuous_only": False,           # Only compensate continuous fire, not single shots
+    # Hitsound
+    "hitsound_enabled": False,              # Enable hitsound
+    "hitsound_type": "hitmarker",           # Hitsound type ("hitmarker", "criticalhit", "metalhit")
 }
 
 # =============================================================================
@@ -482,25 +524,245 @@ UI_COLORWAYS = {
         "header_hovered": (108, 48, 88, 255),
         "header_active": (135, 62, 108, 255),
     },
-    "Gray": {
-        "window_bg": (32, 32, 35, 255),
-        "title_bg": (25, 25, 28, 255),
-        "title_bg_active": (55, 55, 60, 255),
-        "frame_bg": (48, 48, 52, 255),
-        "frame_bg_hovered": (62, 62, 68, 255),
-        "frame_bg_active": (78, 78, 85, 255),
-        "button": (58, 58, 65, 255),
-        "button_hovered": (75, 75, 82, 255),
-        "button_active": (45, 45, 50, 255),
-        "tab": (42, 42, 48, 255),
-        "tab_hovered": (65, 65, 72, 255),
-        "tab_active": (55, 55, 62, 255),
-        "text": (220, 220, 225, 255),
-        "check_mark": (150, 150, 160, 255),
-        "slider_grab": (120, 120, 130, 255),
-        "header": (52, 52, 58, 255),
-        "header_hovered": (68, 68, 75, 255),
-        "header_active": (82, 82, 90, 255),
+    "Light Gray": {
+        "window_bg": (55, 55, 58, 255),
+        "title_bg": (45, 45, 48, 255),
+        "title_bg_active": (120, 120, 130, 255),
+        "frame_bg": (85, 85, 92, 255),
+        "frame_bg_hovered": (110, 110, 118, 255),
+        "frame_bg_active": (135, 135, 145, 255),
+        "button": (115, 115, 125, 255),
+        "button_hovered": (145, 145, 155, 255),
+        "button_active": (95, 95, 105, 255),
+        "tab": (90, 90, 98, 255),
+        "tab_hovered": (125, 125, 135, 255),
+        "tab_active": (110, 110, 120, 255),
+        "text": (245, 245, 248, 255),
+        "check_mark": (180, 180, 195, 255),
+        "slider_grab": (155, 155, 170, 255),
+        "header": (100, 100, 110, 255),
+        "header_hovered": (130, 130, 142, 255),
+        "header_active": (155, 155, 168, 255),
+    },
+    "Dark Gray": {
+        "window_bg": (22, 22, 25, 255),
+        "title_bg": (15, 15, 18, 255),
+        "title_bg_active": (45, 45, 52, 255),
+        "frame_bg": (35, 35, 40, 255),
+        "frame_bg_hovered": (48, 48, 55, 255),
+        "frame_bg_active": (62, 62, 70, 255),
+        "button": (45, 45, 52, 255),
+        "button_hovered": (60, 60, 68, 255),
+        "button_active": (35, 35, 42, 255),
+        "tab": (32, 32, 38, 255),
+        "tab_hovered": (52, 52, 60, 255),
+        "tab_active": (42, 42, 50, 255),
+        "text": (185, 185, 195, 255),
+        "check_mark": (120, 120, 135, 255),
+        "slider_grab": (95, 95, 108, 255),
+        "header": (40, 40, 48, 255),
+        "header_hovered": (55, 55, 65, 255),
+        "header_active": (68, 68, 78, 255),
+    },
+    "Light Yellow": {
+        "window_bg": (55, 52, 35, 255),
+        "title_bg": (45, 42, 28, 255),
+        "title_bg_active": (200, 180, 70, 255),
+        "frame_bg": (140, 125, 55, 255),
+        "frame_bg_hovered": (180, 160, 75, 255),
+        "frame_bg_active": (220, 195, 95, 255),
+        "button": (200, 180, 70, 255),
+        "button_hovered": (235, 215, 100, 255),
+        "button_active": (165, 148, 55, 255),
+        "tab": (145, 130, 58, 255),
+        "tab_hovered": (205, 185, 85, 255),
+        "tab_active": (185, 165, 72, 255),
+        "text": (255, 252, 230, 255),
+        "check_mark": (255, 240, 140, 255),
+        "slider_grab": (235, 215, 110, 255),
+        "header": (160, 145, 62, 255),
+        "header_hovered": (195, 175, 82, 255),
+        "header_active": (220, 198, 100, 255),
+    },
+    "Dark Yellow": {
+        "window_bg": (28, 26, 12, 255),
+        "title_bg": (20, 18, 8, 255),
+        "title_bg_active": (90, 80, 25, 255),
+        "frame_bg": (60, 54, 18, 255),
+        "frame_bg_hovered": (88, 78, 28, 255),
+        "frame_bg_active": (118, 105, 38, 255),
+        "button": (100, 90, 30, 255),
+        "button_hovered": (132, 118, 45, 255),
+        "button_active": (78, 70, 22, 255),
+        "tab": (65, 58, 20, 255),
+        "tab_hovered": (105, 94, 35, 255),
+        "tab_active": (88, 78, 28, 255),
+        "text": (235, 230, 180, 255),
+        "check_mark": (230, 210, 80, 255),
+        "slider_grab": (190, 170, 60, 255),
+        "header": (78, 70, 25, 255),
+        "header_hovered": (108, 96, 38, 255),
+        "header_active": (135, 120, 50, 255),
+    },
+    "Light Orange": {
+        "window_bg": (55, 42, 35, 255),
+        "title_bg": (45, 34, 28, 255),
+        "title_bg_active": (220, 140, 60, 255),
+        "frame_bg": (155, 95, 50, 255),
+        "frame_bg_hovered": (195, 125, 70, 255),
+        "frame_bg_active": (235, 155, 90, 255),
+        "button": (220, 140, 60, 255),
+        "button_hovered": (250, 175, 95, 255),
+        "button_active": (185, 115, 48, 255),
+        "tab": (160, 100, 52, 255),
+        "tab_hovered": (225, 150, 75, 255),
+        "tab_active": (200, 128, 65, 255),
+        "text": (255, 245, 230, 255),
+        "check_mark": (255, 195, 120, 255),
+        "slider_grab": (245, 165, 95, 255),
+        "header": (175, 110, 58, 255),
+        "header_hovered": (210, 140, 78, 255),
+        "header_active": (240, 165, 98, 255),
+    },
+    "Dark Orange": {
+        "window_bg": (28, 18, 12, 255),
+        "title_bg": (20, 12, 8, 255),
+        "title_bg_active": (100, 55, 20, 255),
+        "frame_bg": (68, 38, 18, 255),
+        "frame_bg_hovered": (98, 55, 28, 255),
+        "frame_bg_active": (130, 75, 40, 255),
+        "button": (115, 62, 25, 255),
+        "button_hovered": (150, 85, 40, 255),
+        "button_active": (88, 48, 18, 255),
+        "tab": (72, 40, 18, 255),
+        "tab_hovered": (120, 68, 32, 255),
+        "tab_active": (98, 55, 25, 255),
+        "text": (235, 210, 185, 255),
+        "check_mark": (240, 150, 70, 255),
+        "slider_grab": (200, 115, 50, 255),
+        "header": (85, 48, 22, 255),
+        "header_hovered": (118, 68, 35, 255),
+        "header_active": (145, 85, 48, 255),
+    },
+    "Light Brown": {
+        "window_bg": (52, 45, 38, 255),
+        "title_bg": (42, 36, 30, 255),
+        "title_bg_active": (165, 120, 80, 255),
+        "frame_bg": (115, 85, 58, 255),
+        "frame_bg_hovered": (150, 112, 78, 255),
+        "frame_bg_active": (185, 140, 98, 255),
+        "button": (165, 120, 80, 255),
+        "button_hovered": (198, 155, 115, 255),
+        "button_active": (138, 98, 65, 255),
+        "tab": (120, 88, 60, 255),
+        "tab_hovered": (170, 128, 90, 255),
+        "tab_active": (150, 110, 75, 255),
+        "text": (255, 248, 235, 255),
+        "check_mark": (220, 180, 140, 255),
+        "slider_grab": (195, 150, 110, 255),
+        "header": (135, 100, 68, 255),
+        "header_hovered": (165, 125, 88, 255),
+        "header_active": (190, 148, 108, 255),
+    },
+    "Dark Brown": {
+        "window_bg": (25, 20, 16, 255),
+        "title_bg": (18, 14, 10, 255),
+        "title_bg_active": (75, 52, 32, 255),
+        "frame_bg": (52, 38, 25, 255),
+        "frame_bg_hovered": (75, 55, 38, 255),
+        "frame_bg_active": (100, 75, 52, 255),
+        "button": (85, 60, 38, 255),
+        "button_hovered": (115, 85, 58, 255),
+        "button_active": (65, 45, 28, 255),
+        "tab": (55, 40, 28, 255),
+        "tab_hovered": (90, 65, 45, 255),
+        "tab_active": (75, 55, 38, 255),
+        "text": (225, 210, 190, 255),
+        "check_mark": (185, 145, 100, 255),
+        "slider_grab": (150, 115, 78, 255),
+        "header": (65, 48, 32, 255),
+        "header_hovered": (90, 68, 48, 255),
+        "header_active": (112, 85, 60, 255),
+    },
+    "Light Cyan": {
+        "window_bg": (35, 52, 55, 255),
+        "title_bg": (28, 42, 45, 255),
+        "title_bg_active": (60, 180, 190, 255),
+        "frame_bg": (50, 125, 135, 255),
+        "frame_bg_hovered": (70, 165, 175, 255),
+        "frame_bg_active": (90, 200, 210, 255),
+        "button": (60, 175, 185, 255),
+        "button_hovered": (95, 210, 220, 255),
+        "button_active": (48, 145, 155, 255),
+        "tab": (52, 130, 140, 255),
+        "tab_hovered": (75, 180, 190, 255),
+        "tab_active": (65, 160, 170, 255),
+        "text": (230, 255, 255, 255),
+        "check_mark": (140, 255, 255, 255),
+        "slider_grab": (110, 230, 240, 255),
+        "header": (58, 140, 150, 255),
+        "header_hovered": (78, 175, 185, 255),
+        "header_active": (98, 200, 210, 255),
+    },
+    "Dark Cyan": {
+        "window_bg": (12, 25, 28, 255),
+        "title_bg": (8, 18, 20, 255),
+        "title_bg_active": (20, 75, 85, 255),
+        "frame_bg": (18, 52, 58, 255),
+        "frame_bg_hovered": (28, 78, 88, 255),
+        "frame_bg_active": (40, 105, 115, 255),
+        "button": (28, 88, 98, 255),
+        "button_hovered": (42, 118, 128, 255),
+        "button_active": (20, 68, 78, 255),
+        "tab": (20, 58, 65, 255),
+        "tab_hovered": (35, 95, 105, 255),
+        "tab_active": (28, 78, 88, 255),
+        "text": (180, 230, 235, 255),
+        "check_mark": (70, 210, 220, 255),
+        "slider_grab": (50, 170, 180, 255),
+        "header": (25, 68, 78, 255),
+        "header_hovered": (38, 98, 108, 255),
+        "header_active": (50, 125, 135, 255),
+    },
+    "Light Magenta": {
+        "window_bg": (55, 38, 55, 255),
+        "title_bg": (45, 30, 45, 255),
+        "title_bg_active": (200, 80, 180, 255),
+        "frame_bg": (140, 58, 130, 255),
+        "frame_bg_hovered": (180, 78, 168, 255),
+        "frame_bg_active": (220, 100, 205, 255),
+        "button": (200, 80, 180, 255),
+        "button_hovered": (235, 115, 218, 255),
+        "button_active": (165, 62, 150, 255),
+        "tab": (145, 62, 135, 255),
+        "tab_hovered": (205, 90, 188, 255),
+        "tab_active": (185, 78, 170, 255),
+        "text": (255, 235, 252, 255),
+        "check_mark": (255, 150, 240, 255),
+        "slider_grab": (235, 118, 218, 255),
+        "header": (160, 68, 148, 255),
+        "header_hovered": (195, 92, 180, 255),
+        "header_active": (220, 115, 205, 255),
+    },
+    "Dark Magenta": {
+        "window_bg": (28, 14, 26, 255),
+        "title_bg": (20, 10, 18, 255),
+        "title_bg_active": (90, 30, 80, 255),
+        "frame_bg": (60, 22, 55, 255),
+        "frame_bg_hovered": (88, 35, 80, 255),
+        "frame_bg_active": (118, 48, 108, 255),
+        "button": (100, 35, 90, 255),
+        "button_hovered": (132, 52, 120, 255),
+        "button_active": (78, 26, 70, 255),
+        "tab": (65, 25, 58, 255),
+        "tab_hovered": (105, 42, 95, 255),
+        "tab_active": (88, 35, 80, 255),
+        "text": (235, 195, 228, 255),
+        "check_mark": (230, 90, 210, 255),
+        "slider_grab": (190, 68, 175, 255),
+        "header": (78, 30, 70, 255),
+        "header_hovered": (108, 45, 98, 255),
+        "header_active": (135, 58, 122, 255),
     },
 }
 
@@ -515,6 +777,9 @@ Keybinds_Config = {
     "aimbot_key": "alt",  # Key to activate aimbot (hold)
     "triggerbot_key": "x",  # Key to activate triggerbot (hold)
     "acs_key": "v",  # Key to activate auto crosshair placement (hold)
+    "aimbot_toggle_key": "",  # Key to toggle aimbot on/off
+    "head_only_toggle_key": "",  # Key to toggle head-only mode for triggerbot
+    "rcs_toggle_key": "",  # Key to toggle RCS on/off
 }
 
 
@@ -600,6 +865,7 @@ m_Item = None
 m_iItemDefinitionIndex = None
 m_hActiveWeapon = None
 m_iClip1 = None
+pBulletServicesOffset = None
 
 # Bomb offsets
 m_flTimerLength = None
@@ -638,6 +904,9 @@ aimbot_state = {
     "thread": None,             # Reference to aimbot thread
     "settings": None,           # Current aimbot settings
     "locked_entity": None,      # Currently locked target entity address
+    "accum_x": 0.0,             # Accumulated fractional X movement
+    "accum_y": 0.0,             # Accumulated fractional Y movement
+    "is_targeting": False,      # Whether currently targeting a player
 }
 
 # Triggerbot State
@@ -648,18 +917,12 @@ triggerbot_state = {
     "mouse": None,              # pynput mouse controller
 }
 
-# Auto Accept State
-auto_accept_state = {
-    "running": False,           # Whether auto-accept thread is running
-    "thread": None,             # Reference to auto-accept thread
-    "settings": None,           # Current auto-accept settings
-}
-
 # Anti Flash State
 anti_flash_state = {
     "running": False,           # Whether anti-flash thread is running
     "thread": None,             # Reference to anti-flash thread
     "settings": None,           # Current anti-flash settings
+    "last_enabled": False,      # Last state of anti_flash_enabled
 }
 
 # FOV Changer State
@@ -684,6 +947,22 @@ acs_state = {
     "settings": None,           # Current ACS settings
 }
 
+# Hitsound State
+hitsound_state = {
+    "running": False,           # Whether hitsound thread is running
+    "thread": None,             # Reference to hitsound thread
+    "settings": None,           # Current hitsound settings
+    "previous_total_hits": 0,   # Previous total hits count
+}
+
+# Footstep ESP State - Tracks footstep rings for each player
+# Based on velocity changes to detect footsteps/movement sounds
+footstep_esp_cache = {
+    "ring_cache": {},           # Dict[pawn_address] -> List of ring info dicts
+    "last_velocity": {},        # Dict[pawn_address] -> (vx, vy, vz) last velocity
+    "last_origin": {},          # Dict[pawn_address] -> (x, y, z) last origin
+}
+
 # Keybind listening state
 keybind_listener = {
     "listening": False,         # Whether we're currently listening for a key press
@@ -696,9 +975,6 @@ debug_output = {
     "max_messages": 100,       # Maximum messages to keep in memory
     "scroll_to_bottom": True,  # Auto-scroll to newest message
 }
-
-# Offsets tab password protection
-offsets_tab_unlocked = False
 
 # Bomb ESP timing state
 BombPlantedTime = 0
@@ -754,6 +1030,10 @@ VK_CODE_MAP = {
     0xBE: "period", 0xBF: "slash", 0xC0: "tilde",
     0xDB: "leftbracket", 0xDC: "backslash", 0xDD: "rightbracket",
     0xDE: "quote",
+    
+    # Mouse buttons
+    0x01: "mouse1", 0x02: "mouse2", 0x04: "mouse3",
+    0x05: "mouse4", 0x06: "mouse5",
 }
 
 # Reverse mapping for quick lookups (key_name -> vk_code)
@@ -833,7 +1113,10 @@ def load_settings(file_path=None):
         "enemy_box_color", "team_box_color",
         "enemy_snapline_color", "team_snapline_color",
         "enemy_skeleton_color", "team_skeleton_color",
-        "enemy_head_dot_color", "team_head_dot_color"
+        "enemy_head_dot_color", "team_head_dot_color",
+        "footstep_esp_color", "aimbot_snapline_color",
+        "aimbot_radius_color", "aimbot_deadzone_color",
+        "aimbot_targeting_radius_color", "aimbot_targeting_deadzone_color"
     ]
     
     if os.path.exists(file_path):
@@ -915,7 +1198,7 @@ def load_config_from_file(config_name):
         "spotted_color", "not_spotted_color",
         "radar_bg_color", "radar_border_color", "radar_crosshair_color",
         "radar_player_color", "radar_enemy_color", "radar_team_color",
-        "aimbot_radius_color", "acs_line_color"
+        "aimbot_radius_color", "acs_line_color", "footstep_esp_color"
     ]
     
     if os.path.exists(config_path):
@@ -955,12 +1238,17 @@ def apply_config_to_ui():
             "chk_line_esp": "line_esp",
             "chk_skeleton_esp": "skeleton_esp",
             "chk_name_esp": "name_esp",
+            "chk_distance_esp": "distance_esp",
             "chk_health_bar": "health_bar",
             "chk_armor_bar": "armor_bar",
             "chk_head_dot": "head_dot",
             "chk_bomb_esp": "bomb_esp",
+            "chk_footstep_esp": "footstep_esp",
             "chk_spotted_esp": "spotted_esp",
+            "chk_hide_spotted_players": "hide_spotted_players",
+            "chk_custom_crosshair": "custom_crosshair",
             "chk_radar_enabled": "radar_enabled",
+            "chk_radar_overlap_game": "radar_overlap_game",
             "chk_aimbot_enabled": "aimbot_enabled",
             "chk_aimbot_require_key": "aimbot_require_key",
             "chk_aimbot_spotted_check": "aimbot_spotted_check",
@@ -975,9 +1263,10 @@ def apply_config_to_ui():
             "chk_anti_flash_enabled": "anti_flash_enabled",
             "chk_fov_changer_enabled": "fov_changer_enabled",
             "chk_rcs_enabled": "rcs_enabled",
-            "chk_auto_accept_enabled": "auto_accept_enabled",
+            "chk_rcs_continuous_only": "rcs_continuous_only",
             "chk_fps_cap_enabled": "fps_cap_enabled",
             "chk_hide_on_tabout": "hide_on_tabout",
+            "chk_show_status_labels": "show_status_labels",
         }
         
         for tag, config_key in checkbox_mappings.items():
@@ -990,6 +1279,8 @@ def apply_config_to_ui():
             "slider_box_thickness": "box_thickness",
             "slider_snapline_thickness": "snapline_thickness",
             "slider_skeleton_thickness": "skeleton_thickness",
+            "slider_custom_crosshair_scale": "custom_crosshair_scale",
+            "slider_custom_crosshair_thickness": "custom_crosshair_thickness",
             "slider_spotted_text_size": "spotted_text_size",
             "slider_name_text_size": "name_text_size",
             "slider_radar_size": "radar_size",
@@ -998,6 +1289,8 @@ def apply_config_to_ui():
             "slider_aimbot_smoothness": "aimbot_smoothness",
             "slider_aimbot_radius": "aimbot_radius",
             "slider_aimbot_deadzone_radius": "aimbot_deadzone_radius",
+            "slider_aimbot_radius_transparency": "aimbot_radius_transparency",
+            "slider_aimbot_deadzone_transparency": "aimbot_deadzone_transparency",
             "slider_triggerbot_first_shot_delay": "triggerbot_first_shot_delay",
             "slider_triggerbot_between_shots_delay": "triggerbot_between_shots_delay",
             "slider_triggerbot_burst_shots": "triggerbot_burst_shots",
@@ -1011,6 +1304,9 @@ def apply_config_to_ui():
             "slider_rcs_strength_y": "rcs_strength_y",
             "slider_rcs_smoothness": "rcs_smoothness",
             "slider_rcs_multiplier": "rcs_multiplier",
+            "slider_window_width": "window_width",
+            "slider_window_height": "window_height",
+            "slider_menu_transparency": "menu_transparency",
         }
         
         for tag, config_key in slider_mappings.items():
@@ -1035,10 +1331,23 @@ def apply_config_to_ui():
             aa_mode = Active_Config.get("antialiasing", "4x MSAA")
             dpg.set_value("combo_antialiasing", aa_mode)
         
-        # Radar position combo (stored as string: "Top Left", "Top Right", etc.)
-        if dpg.does_item_exist("combo_radar_position"):
-            radar_pos = Active_Config.get("radar_position", "Top Right")
-            dpg.set_value("combo_radar_position", radar_pos)
+        # Radar position combo (stored as string: "Top Left", "Top Right", etc.) - DEPRECATED
+        # if dpg.does_item_exist("combo_radar_position"):
+        #     radar_pos = Active_Config.get("radar_position", "Top Right")
+        #     dpg.set_value("combo_radar_position", radar_pos)
+        
+        # Radar overlap game checkbox
+        if dpg.does_item_exist("chk_radar_overlap_game"):
+            overlap_game = Active_Config.get("radar_overlap_game", False)
+            dpg.set_value("chk_radar_overlap_game", overlap_game)
+        
+        # Radar manual position sliders
+        if dpg.does_item_exist("slider_radar_x"):
+            radar_x = Active_Config.get("radar_x", 0)
+            dpg.set_value("slider_radar_x", radar_x)
+        if dpg.does_item_exist("slider_radar_y"):
+            radar_y = Active_Config.get("radar_y", 0)
+            dpg.set_value("slider_radar_y", radar_y)
         
         # Aimbot target bone combo (stored as string: "Head", "Neck", etc.)
         if dpg.does_item_exist("combo_aimbot_target_bone"):
@@ -1049,6 +1358,11 @@ def apply_config_to_ui():
         if dpg.does_item_exist("combo_acs_target_bone"):
             bone = Active_Config.get("acs_target_bone", "Head")
             dpg.set_value("combo_acs_target_bone", bone)
+        
+        # Custom crosshair shape combo
+        if dpg.does_item_exist("combo_custom_crosshair_shape"):
+            shape = Active_Config.get("custom_crosshair_shape", "Sus")
+            dpg.set_value("combo_custom_crosshair_shape", shape)
         
         # Targeting combo
         if dpg.does_item_exist("combo_targeting"):
@@ -1089,6 +1403,7 @@ def apply_config_to_ui():
             "color_team_head_dot": "team_head_dot_color",
             "color_spotted": "spotted_color",
             "color_not_spotted": "not_spotted_color",
+            "color_custom_crosshair_color": "custom_crosshair_color",
             "color_radar_bg": "radar_bg_color",
             "color_radar_border": "radar_border_color",
             "color_radar_crosshair": "radar_crosshair_color",
@@ -1098,6 +1413,7 @@ def apply_config_to_ui():
             "color_aimbot_radius": "aimbot_radius_color",
             "color_aimbot_deadzone": "aimbot_deadzone_color",
             "color_acs_line": "acs_line_color",
+            "color_footstep_esp": "footstep_esp_color",
         }
         
         for tag, config_key in color_mappings.items():
@@ -2067,6 +2383,11 @@ def render_esp_frame(overlay, pm, client, settings):
     try:
         local_player_pawn_addr = pm.read_longlong(client + dwLocalPlayerPawn)
         local_player_team = pm.read_int(local_player_pawn_addr + m_iTeamNum)
+        # Read local player position for distance calculation
+        local_game_scene = pm.read_longlong(local_player_pawn_addr + m_pGameSceneNode)
+        local_origin_x = pm.read_float(local_game_scene + m_vecAbsOrigin)
+        local_origin_y = pm.read_float(local_game_scene + m_vecAbsOrigin + 4)
+        local_origin_z = pm.read_float(local_game_scene + m_vecAbsOrigin + 8)
     except Exception:
         return
     
@@ -2132,6 +2453,18 @@ def render_esp_frame(overlay, pm, client, settings):
             if entity_alive != 256:
                 continue
             
+            # Check spotted state for hide spotted players feature
+            is_spotted = False
+            if settings.get('hide_spotted_players', False) or settings.get('spotted_esp', True):
+                try:
+                    spotted_flag = pm.read_int(entity_pawn_addr + m_entitySpottedState + m_bSpotted)
+                    is_spotted = spotted_flag != 0
+                except:
+                    try:
+                        is_spotted = pm.read_bool(entity_pawn_addr + m_entitySpottedState + m_bSpotted)
+                    except:
+                        is_spotted = False
+            
             # Determine color based on team
             is_teammate = entity_team == local_player_team
             
@@ -2150,6 +2483,15 @@ def render_esp_frame(overlay, pm, client, settings):
             # Get bone positions for ESP
             game_scene = pm.read_longlong(entity_pawn_addr + m_pGameSceneNode)
             bone_matrix = pm.read_longlong(game_scene + m_modelState + 0x80)
+            
+            # Read entity position for distance calculation
+            entity_origin_x = pm.read_float(game_scene + m_vecAbsOrigin)
+            entity_origin_y = pm.read_float(game_scene + m_vecAbsOrigin + 4)
+            entity_origin_z = pm.read_float(game_scene + m_vecAbsOrigin + 8)
+            
+            # Update Footstep ESP tracking for this entity
+            if settings.get('footstep_esp', False):
+                update_footstep_esp(pm, entity_pawn_addr, game_scene, local_player_team, entity_team, settings)
             
             # Read head bone (bone 6) in one call - 12 bytes for X, Y, Z
             head_bytes = pm.read_bytes(bone_matrix + 6 * 0x20, 12)
@@ -2173,7 +2515,7 @@ def render_esp_frame(overlay, pm, client, settings):
             rightX = head_pos[0] + box_width // 2
             
             # Draw snap lines
-            if settings.get('line_esp', True):
+            if settings.get('line_esp', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
                 snapline_thickness = settings.get('snapline_thickness', 1.5)
                 if lines_position == 'Top':
                     line_end_x = head_pos[0]
@@ -2184,7 +2526,7 @@ def render_esp_frame(overlay, pm, client, settings):
                 overlay.draw_line_rgb(center_x, center_y, line_end_x, line_end_y, snapline_color, snapline_thickness)
             
             # Draw box ESP
-            if settings.get('box_esp', True):
+            if settings.get('box_esp', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
                 box_thickness = settings.get('box_thickness', 1.5)
                 box_type = settings.get('box_type', '2D')
                 
@@ -2269,7 +2611,7 @@ def render_esp_frame(overlay, pm, client, settings):
                 else:
                     # 2D box (default)
                     overlay.draw_rect_rgb(leftX, head_pos[1], box_width, deltaZ, box_color, box_thickness)
-            if settings.get('health_bar', True):
+            if settings.get('health_bar', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
                 hp_percent = entity_hp / 100.0
                 healthbar_type = settings.get('healthbar_type', 'Vertical Left')
                 bar_thickness = 3
@@ -2320,7 +2662,7 @@ def render_esp_frame(overlay, pm, client, settings):
                         overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_red')
             
             # Draw armor bar
-            if settings.get('armor_bar', True) and entity_armor > 0:
+            if settings.get('armor_bar', True) and entity_armor > 0 and not (settings.get('hide_spotted_players', False) and is_spotted):
                 armor_percent = min(1.0, entity_armor / 100.0)
                 healthbar_type = settings.get('healthbar_type', 'Vertical Left')
                 bar_thickness = 3
@@ -2351,7 +2693,7 @@ def render_esp_frame(overlay, pm, client, settings):
                     overlay.draw_filled_rect_brush(armor_bar_x, head_pos[1] + (deltaZ - armor_height), bar_thickness, armor_height, 'armor_blue')
             
             # Draw head dot (anti-aliased circle with ImGui)
-            if settings.get('head_dot', True):
+            if settings.get('head_dot', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
                 head_screen = w2s(view_matrix, headX, headY, headZ - 8, width, height)
                 if head_screen[0] != -999:
                     # Scale radius based on box dimensions (similar to script.pyw head hitbox)
@@ -2372,7 +2714,7 @@ def render_esp_frame(overlay, pm, client, settings):
                 text_y_offset = head_pos[1] - 5  # Start just above head
             
             # Draw player nickname above head
-            if settings.get('name_esp', False):
+            if settings.get('name_esp', False) and not (settings.get('hide_spotted_players', False) and is_spotted):
                 try:
                     player_name = pm.read_string(current_controller + m_iszPlayerName, 32)
                     if player_name:
@@ -2418,12 +2760,42 @@ def render_esp_frame(overlay, pm, client, settings):
                 overlay.draw_text(text_x, text_y_offset - text_size, spotted_text, spotted_color[0], spotted_color[1], spotted_color[2], size=text_size, stroke=True, font_name=selected_font)
             
             # Draw skeleton
-            if settings.get('skeleton_esp', True):
+            if settings.get('skeleton_esp', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
                 skeleton_thickness = settings.get('skeleton_thickness', 1.5)
                 draw_skeleton(overlay, pm, bone_matrix, view_matrix, width, height, skeleton_color, skeleton_thickness)
+            
+            # Draw distance over the bones
+            if settings.get('distance_esp', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
+                # Calculate distance from local player to this entity
+                dx = entity_origin_x - local_origin_x
+                dy = entity_origin_y - local_origin_y
+                dz = entity_origin_z - local_origin_z
+                distance = math.sqrt(dx*dx + dy*dy + dz*dz)
+                
+                # Display distance in meters (assuming units are in game units, roughly 1 unit = 1 cm, so divide by 100)
+                distance_m = int(distance / 100)
+                distance_text = f"{distance_m}m"
+                
+                # Draw at center of player box (over bones)
+                center_x = head_pos[0]
+                center_y = (head_pos[1] + leg_pos[1]) / 2
+                
+                text_size = 12.0
+                selected_font = settings.get('menu_font', 'Default')
+                
+                # Calculate text width for centering
+                text_width = overlay.calc_text_width(distance_text, text_size, selected_font)
+                text_x = center_x - (text_width / 2)
+                
+                # Draw with white color
+                overlay.draw_text(text_x, center_y - text_size/2, distance_text, 255, 255, 255, size=text_size, stroke=True, font_name=selected_font)
                 
         except Exception:
             continue
+    
+    # Render Footstep ESP rings (after all players processed)
+    if settings.get('footstep_esp', False):
+        render_footstep_esp(overlay, pm, client, view_matrix, settings, width, height)
 
 
 def draw_skeleton(overlay, pm, bone_matrix, view_matrix, width, height, skeleton_color=(255, 255, 255), thickness=1.5):
@@ -2472,6 +2844,183 @@ def draw_skeleton(overlay, pm, bone_matrix, view_matrix, width, height, skeleton
                 overlay.draw_line_rgb(pos1[0], pos1[1], pos2[0], pos2[1], skeleton_color, thickness)
     except Exception:
         pass
+
+
+def update_footstep_esp(pm, entity_pawn_addr, game_scene, local_player_team, entity_team, settings):
+    """
+    Update footstep ESP cache for an entity based on velocity changes.
+    
+    This function detects when a player makes noise (through velocity changes)
+    and adds a ring to be rendered at their current position.
+    
+    Args:
+        pm: pymem instance for memory reading
+        entity_pawn_addr: Entity pawn memory address
+        game_scene: Game scene node address
+        local_player_team: Local player's team number
+        entity_team: Entity's team number
+        settings: ESP settings dictionary
+    """
+    global footstep_esp_cache
+    
+    # Check targeting type - skip teammates unless targeting all players
+    targeting_type = settings.get('targeting_type', 0)
+    if entity_team == local_player_team and targeting_type == 0:
+        return
+    
+    try:
+        # Read current velocity
+        vel_bytes = pm.read_bytes(entity_pawn_addr + m_vecVelocity, 12)
+        vel_x, vel_y, vel_z = struct.unpack('3f', vel_bytes)
+        
+        # Calculate velocity magnitude (horizontal movement for footsteps)
+        velocity_mag = math.sqrt(vel_x * vel_x + vel_y * vel_y)
+        
+        # Read current origin
+        origin_x = pm.read_float(game_scene + m_vecAbsOrigin)
+        origin_y = pm.read_float(game_scene + m_vecAbsOrigin + 4)
+        origin_z = pm.read_float(game_scene + m_vecAbsOrigin + 8)
+        
+        current_origin = (origin_x, origin_y, origin_z)
+        current_velocity = (vel_x, vel_y, vel_z)
+        
+        # Initialize cache for this entity if needed
+        if entity_pawn_addr not in footstep_esp_cache["ring_cache"]:
+            footstep_esp_cache["ring_cache"][entity_pawn_addr] = []
+            footstep_esp_cache["last_velocity"][entity_pawn_addr] = (0, 0, 0)
+            footstep_esp_cache["last_origin"][entity_pawn_addr] = current_origin
+        
+        # Get last velocity
+        last_vel = footstep_esp_cache["last_velocity"].get(entity_pawn_addr, (0, 0, 0))
+        last_vel_mag = math.sqrt(last_vel[0] * last_vel[0] + last_vel[1] * last_vel[1])
+        
+        # Detect sound-producing movement (velocity threshold for footsteps)
+        # Sound is produced when player is moving at walking/running speed
+        footstep_threshold = 50.0  # Minimum velocity to produce footstep sounds
+        
+        # Add a ring if the player is making noise (moving above threshold)
+        # We use a cooldown to prevent too many rings
+        if velocity_mag > footstep_threshold:
+            rings = footstep_esp_cache["ring_cache"][entity_pawn_addr]
+            
+            # Check if enough time passed since last ring (cooldown ~0.25 seconds)
+            should_add_ring = True
+            if len(rings) > 0:
+                last_ring_time = rings[-1]["start_time"]
+                if time.time() - last_ring_time < 0.25:
+                    should_add_ring = False
+            
+            if should_add_ring:
+                # Add new ring at current position
+                footstep_esp_cache["ring_cache"][entity_pawn_addr].append({
+                    "start_time": time.time(),
+                    "origin": current_origin
+                })
+        
+        # Update cached values
+        footstep_esp_cache["last_velocity"][entity_pawn_addr] = current_velocity
+        footstep_esp_cache["last_origin"][entity_pawn_addr] = current_origin
+        
+    except Exception:
+        pass
+
+
+def render_footstep_esp(overlay, pm, client, view_matrix, settings, width, height):
+    """
+    Render footstep ESP rings for all tracked enemies.
+    
+    Each ring expands outward from the point where the enemy made noise,
+    shrinking in radius over time until it disappears.
+    
+    Args:
+        overlay: ESPOverlay instance for drawing
+        pm: pymem instance for memory reading
+        client: client.dll base address
+        view_matrix: Current view matrix
+        settings: ESP settings dictionary
+        width: Screen width
+        height: Screen height
+    """
+    global footstep_esp_cache
+    
+    if not settings.get('footstep_esp', False):
+        return
+    
+    sound_color = settings.get('footstep_esp_color', (255, 165, 0))  # Orange default
+    duration = settings.get('footstep_esp_duration', 1.0)
+    current_time = time.time()
+    
+    # Iterate through all tracked entities
+    entities_to_clean = []
+    
+    for entity_addr, rings in footstep_esp_cache["ring_cache"].items():
+        # Process rings in reverse order for safe removal
+        for r in range(len(rings) - 1, -1, -1):
+            ring = rings[r]
+            
+            elapsed = current_time - ring["start_time"]
+            
+            # Remove expired rings
+            if elapsed >= duration:
+                rings.pop(r)
+                continue
+            
+            # Calculate ring radius (starts at 30, shrinks to 0)
+            progress = elapsed / duration
+            radius = 30.0 * (1.0 - progress)
+            
+            if radius < 1.0:
+                continue
+            
+            # Get ring origin in world space
+            origin = ring["origin"]
+            
+            # Draw the ring as a circle in world space
+            # We'll draw multiple points and connect them
+            segments = 36  # Number of segments for the circle
+            points = []
+            
+            for i in range(segments + 1):
+                angle = (2.0 * math.pi * i) / segments
+                x_offset = radius * math.cos(angle)
+                y_offset = radius * math.sin(angle)
+                
+                # World position of this point
+                world_x = origin[0] + x_offset
+                world_y = origin[1] + y_offset
+                world_z = origin[2]  # Ring is at player's feet level
+                
+                # Convert to screen space
+                screen_pos = w2s(view_matrix, world_x, world_y, world_z, width, height)
+                
+                if screen_pos[0] != -999:
+                    points.append(screen_pos)
+                else:
+                    # If a point is off-screen, draw what we have and start fresh
+                    if len(points) > 1:
+                        for j in range(len(points) - 1):
+                            overlay.draw_line_rgb(
+                                points[j][0], points[j][1],
+                                points[j+1][0], points[j+1][1],
+                                sound_color, 2.0
+                            )
+                    points = []
+            
+            # Draw remaining connected points
+            if len(points) > 1:
+                for j in range(len(points) - 1):
+                    overlay.draw_line_rgb(
+                        points[j][0], points[j][1],
+                        points[j+1][0], points[j+1][1],
+                        sound_color, 2.0
+                    )
+        
+        # Mark empty entity caches for cleanup
+        if len(rings) == 0:
+            entities_to_clean.append(entity_addr)
+    
+    # Clean up empty caches (don't remove to allow re-detection)
+    # We keep the last_velocity cache to detect future sounds
 
 
 def render_bomb_esp(overlay, pm, client, settings):
@@ -2649,38 +3198,28 @@ def render_radar(overlay, pm, client, settings):
         height = overlay.height
         
         # Get radar settings
-        radar_size = settings.get('radar_size', 200)
-        radar_scale = settings.get('radar_scale', 5.0)
-        radar_position = settings.get('radar_position', 'Top Right')
-        radar_opacity = settings.get('radar_opacity', 180)
+        radar_overlap_game = settings.get('radar_overlap_game', False)
         
-        # Calculate radar position based on setting
-        margin = 50
-        if radar_position == 'Top Right':
-            radar_x = width - radar_size - margin
-            radar_y = margin
-        elif radar_position == 'Top Left':
-            radar_x = margin
-            radar_y = margin
-        elif radar_position == 'Bottom Right':
-            radar_x = width - radar_size - margin
-            radar_y = height - radar_size - margin
-        elif radar_position == 'Bottom Left':
-            radar_x = margin
-            radar_y = height - radar_size - margin
-        elif radar_position == 'Bottom Middle':
-            radar_x = (width - radar_size) / 2
-            radar_y = height - radar_size - margin
-        elif radar_position == 'Center Right':
-            radar_x = width - radar_size - margin
-            radar_y = (height - radar_size) / 2
-        elif radar_position == 'Center Left':
-            radar_x = margin
-            radar_y = (height - radar_size) / 2
+        if radar_overlap_game:
+            # Use locked values for game radar overlap
+            radar_size = 250
+            radar_scale = 15.0
+            radar_x_offset = -810
+            radar_y_offset = -390
+            radar_opacity = 50
         else:
-            # Default to top right
-            radar_x = width - radar_size - margin
-            radar_y = margin
+            # Use normal configurable values
+            radar_size = settings.get('radar_size', 200)
+            radar_scale = settings.get('radar_scale', 5.0)
+            radar_x_offset = settings.get('radar_x', 0)
+            radar_y_offset = settings.get('radar_y', 0)
+            radar_opacity = settings.get('radar_opacity', 180)
+        
+        # Calculate radar position relative to screen center
+        screen_center_x = width / 2
+        screen_center_y = height / 2
+        radar_x = screen_center_x + radar_x_offset - radar_size / 2
+        radar_y = screen_center_y + radar_y_offset - radar_size / 2
         
         # Get radar colors from settings
         radar_bg = settings.get('radar_bg_color', (0, 0, 0))
@@ -2877,36 +3416,355 @@ def render_aimbot_circle(overlay, settings):
         # Get radius from settings
         radius = settings.get('aimbot_radius', 50)
         
-        # Get color from settings
-        color = settings.get('aimbot_radius_color', (255, 0, 0))
+        # Get color from settings - use targeting color if currently targeting
+        is_targeting = aimbot_state.get("is_targeting", False)
+        if is_targeting:
+            color = settings.get('aimbot_targeting_radius_color', (0, 255, 0))
+        else:
+            color = settings.get('aimbot_radius_color', (255, 0, 0))
         if not color or len(color) < 3:
             color = (255, 0, 0)
+        
+        # Get transparency from settings (0-255, convert to 0-1)
+        transparency = settings.get('aimbot_radius_transparency', 180) / 255.0
         
         # Convert to imgui color (0-1 range)
         circle_color = imgui.get_color_u32_rgba(
             color[0] / 255.0, 
             color[1] / 255.0, 
             color[2] / 255.0, 
-            0.8  # Slight transparency
+            transparency
         )
         
+        # Get thickness from settings
+        thickness = settings.get('aimbot_radius_thickness', 2.0)
+        
         # Draw the radius circle
-        overlay.draw_list.add_circle(center_x, center_y, radius, circle_color, 64, 2.0)
+        overlay.draw_list.add_circle(center_x, center_y, radius, circle_color, 64, thickness)
         
         # Draw deadzone circle if enabled
         if settings.get('aimbot_show_deadzone', False) and settings.get('aimbot_deadzone_enabled', False):
             deadzone_radius = settings.get('aimbot_deadzone_radius', 10)
-            deadzone_color = settings.get('aimbot_deadzone_color', (255, 255, 0))
+            if is_targeting:
+                deadzone_color = settings.get('aimbot_targeting_deadzone_color', (0, 0, 255))
+            else:
+                deadzone_color = settings.get('aimbot_deadzone_color', (255, 255, 0))
             if deadzone_color and len(deadzone_color) >= 3:
+                # Get deadzone transparency from settings (0-255, convert to 0-1)
+                dz_transparency = settings.get('aimbot_deadzone_transparency', 180) / 255.0
+                
                 # Convert to imgui color (0-1 range)
                 dz_circle_color = imgui.get_color_u32_rgba(
                     deadzone_color[0] / 255.0, 
                     deadzone_color[1] / 255.0, 
                     deadzone_color[2] / 255.0, 
-                    0.6  # More transparent than radius circle
+                    dz_transparency
                 )
+                # Get deadzone thickness from settings
+                dz_thickness = settings.get('aimbot_deadzone_thickness', 1.5)
+                
                 # Draw the deadzone circle
-                overlay.draw_list.add_circle(center_x, center_y, deadzone_radius, dz_circle_color, 32, 1.5)
+                overlay.draw_list.add_circle(center_x, center_y, deadzone_radius, dz_circle_color, 32, dz_thickness)
+        
+    except Exception:
+        pass
+
+
+def get_crosshair_shape_lines(shape, center_x, center_y, length):
+    """
+    Get the line segments for a specific crosshair shape.
+    
+    Args:
+        shape: Shape name (e.g., "Sus")
+        center_x, center_y: Center coordinates
+        length: Length of arms
+    
+    Returns:
+        list: List of (x1, y1, x2, y2) tuples for line segments
+    """
+    lines = []
+    
+    if shape == "Sus":
+        # Plus sign with clockwise extensions
+        # Top arm
+        lines.append((center_x, center_y - length, center_x, center_y))
+        # Right arm
+        lines.append((center_x, center_y, center_x + length, center_y))
+        # Bottom arm
+        lines.append((center_x, center_y, center_x, center_y + length))
+        # Left arm
+        lines.append((center_x - length, center_y, center_x, center_y))
+        
+        # Extensions (clockwise)
+        # At end of top arm: horizontal right
+        lines.append((center_x, center_y - length, center_x + length, center_y - length))
+        # At end of right arm: vertical down
+        lines.append((center_x + length, center_y, center_x + length, center_y + length))
+        # At end of bottom arm: horizontal left
+        lines.append((center_x, center_y + length, center_x - length, center_y + length))
+        # At end of left arm: vertical up
+        lines.append((center_x - length, center_y, center_x - length, center_y - length))
+    
+    elif shape == "Plus":
+        # Simple plus sign (cross)
+        # Top arm
+        lines.append((center_x, center_y - length, center_x, center_y))
+        # Right arm
+        lines.append((center_x, center_y, center_x + length, center_y))
+        # Bottom arm
+        lines.append((center_x, center_y, center_x, center_y + length))
+        # Left arm
+        lines.append((center_x - length, center_y, center_x, center_y))
+    
+    elif shape == "X":
+        # X shape (diagonal cross)
+        # Top-left to bottom-right diagonal
+        lines.append((center_x - length, center_y - length, center_x + length, center_y + length))
+        # Top-right to bottom-left diagonal
+        lines.append((center_x + length, center_y - length, center_x - length, center_y + length))
+    
+    # Future shapes can be added here with elif statements
+    # elif shape == "NewShape":
+    #     lines.append(...)
+    
+    return lines
+
+
+def render_custom_crosshair(overlay, settings):
+    """
+    Render custom crosshair at the center of the screen.
+    
+    Supports different crosshair shapes defined in get_crosshair_shape_lines().
+    
+    Args:
+        overlay: ESPOverlay instance for drawing
+        settings: ESP settings dictionary
+    """
+    try:
+        if not settings or not isinstance(settings, dict):
+            return
+            
+        # Check if custom crosshair is enabled
+        if not settings.get('custom_crosshair', False):
+            return
+        
+        # Get screen center
+        center_x = overlay.width / 2
+        center_y = overlay.height / 2
+        
+        # Get crosshair settings
+        scale = settings.get('custom_crosshair_scale', 1.0)
+        thickness = settings.get('custom_crosshair_thickness', 2.0)
+        color = settings.get('custom_crosshair_color', (255, 255, 255))
+        shape = settings.get('custom_crosshair_shape', 'Sus')
+        if not color or len(color) < 3:
+            color = (255, 255, 255)
+        
+        # Calculate length based on scale (base length 10, scaled)
+        length = int(10 * scale)
+        
+        # Get line segments for the selected shape
+        lines = get_crosshair_shape_lines(shape, center_x, center_y, length)
+        
+        # Special handling for circle shape
+        if shape == "Circle":
+            # Draw actual circle outline
+            if overlay.draw_list:
+                col = imgui.get_color_u32_rgba(color[0]/255.0, color[1]/255.0, color[2]/255.0, 1.0)
+                overlay.draw_list.add_circle(center_x, center_y, length, col, 32, thickness)
+        elif shape == "Dot":
+            # Draw filled circle (dot)
+            overlay.draw_circle_filled_rgb(center_x, center_y, max(1, thickness), color, 12)
+        else:
+            # Draw all lines for other shapes
+            for x1, y1, x2, y2 in lines:
+                overlay.draw_line_rgb(x1, y1, x2, y2, color, thickness)
+        
+    except Exception:
+        pass
+
+
+def render_aimbot_snaplines(overlay, pm, client, settings):
+    """
+    Render aimbot snaplines to the closest available target.
+    
+    Finds the closest enemy that passes all aimbot targeting checks
+    and draws a line from screen center to their target bone.
+    
+    Args:
+        overlay: ESPOverlay instance for drawing
+        pm: pymem instance for memory reading
+        client: client.dll base address
+        settings: ESP settings dictionary
+    """
+    try:
+        if not settings or not isinstance(settings, dict):
+            return
+            
+        # Check if aimbot snaplines are enabled
+        if not settings.get('aimbot_snaplines', False):
+            return
+        
+        # Check if aimbot is enabled (snaplines only show when aimbot is available)
+        if not settings.get('aimbot_enabled', False):
+            return
+        
+        # Check if ESP is enabled (snaplines should not show if ESP is disabled)
+        if not settings.get('esp_enabled', False):
+            return
+        
+        # Get screen dimensions
+        width = overlay.width
+        height = overlay.height
+        center_x = width // 2
+        center_y = height // 2
+        
+        # Read view matrix
+        try:
+            matrix_bytes = pm.read_bytes(client + dwViewMatrix, 64)
+            view_matrix = struct.unpack('16f', matrix_bytes)
+        except:
+            return
+        
+        # Get local player
+        try:
+            local_player_pawn = pm.read_longlong(client + dwLocalPlayerPawn)
+            if not local_player_pawn:
+                return
+            local_team = pm.read_int(local_player_pawn + m_iTeamNum)
+        except:
+            return
+        
+        # Get aimbot settings
+        radius = settings.get('aimbot_radius', 50)
+        targeting_type = settings.get('targeting_type', 0)
+        spotted_check = settings.get('aimbot_spotted_check', False)
+        deadzone_enabled = settings.get('aimbot_deadzone_enabled', False)
+        deadzone_radius = settings.get('aimbot_deadzone_radius', 10)
+        
+        # Get target bone
+        target_bone_name = settings.get('aimbot_target_bone', 'Head')
+        bone_map = {'Head': 6, 'Neck': 5, 'Chest': 4, 'Pelvis': 0}
+        target_bone_id = bone_map.get(target_bone_name, 6)
+        
+        # Build target list
+        target_list = []
+        
+        try:
+            entity_list = pm.read_longlong(client + dwEntityList)
+            list_entry = pm.read_longlong(entity_list + 0x10)
+            
+            for i in range(1, 64):
+                try:
+                    if list_entry == 0:
+                        break
+                    
+                    current_controller = pm.read_longlong(list_entry + i * 0x70)
+                    if current_controller == 0:
+                        continue
+                    
+                    pawn_handle = pm.read_int(current_controller + m_hPlayerPawn)
+                    if pawn_handle == 0:
+                        continue
+                    
+                    list_entry2 = pm.read_longlong(entity_list + 0x8 * ((pawn_handle & 0x7FFF) >> 9) + 0x10)
+                    if list_entry2 == 0:
+                        continue
+                    
+                    entity_pawn = pm.read_longlong(list_entry2 + 0x70 * (pawn_handle & 0x1FF))
+                    if entity_pawn == 0 or entity_pawn == local_player_pawn:
+                        continue
+                    
+                    # Check team
+                    entity_team = pm.read_int(entity_pawn + m_iTeamNum)
+                    if entity_team == local_team and targeting_type == 0:
+                        continue
+                    
+                    # Check if alive
+                    entity_alive = pm.read_int(entity_pawn + m_lifeState)
+                    if entity_alive != 256:
+                        continue
+                    
+                    entity_health = pm.read_int(entity_pawn + m_iHealth)
+                    if entity_health <= 0:
+                        continue
+                    
+                    # Check spotted state if enabled
+                    if spotted_check:
+                        try:
+                            spotted_flag = pm.read_int(entity_pawn + m_entitySpottedState + m_bSpotted)
+                            is_spotted = spotted_flag != 0
+                        except:
+                            try:
+                                is_spotted = pm.read_bool(entity_pawn + m_entitySpottedState + m_bSpotted)
+                            except:
+                                is_spotted = False
+                        
+                        if not is_spotted:
+                            continue
+                    
+                    # Get bone position
+                    game_scene = pm.read_longlong(entity_pawn + m_pGameSceneNode)
+                    if game_scene == 0:
+                        continue
+                    
+                    bone_matrix = pm.read_longlong(game_scene + m_modelState + 0x80)
+                    if bone_matrix == 0:
+                        continue
+                    
+                    # Read target bone position
+                    head_x = pm.read_float(bone_matrix + target_bone_id * 0x20)
+                    head_y = pm.read_float(bone_matrix + target_bone_id * 0x20 + 0x4)
+                    head_z = pm.read_float(bone_matrix + target_bone_id * 0x20 + 0x8)
+                    
+                    # Convert to screen coordinates
+                    screen_pos = w2s(view_matrix, head_x, head_y, head_z, width, height)
+                    
+                    if screen_pos[0] != -999 and screen_pos[1] != -999:
+                        target_list.append({
+                            'pos': screen_pos,
+                            'entity': entity_pawn
+                        })
+                except:
+                    continue
+        except:
+            return
+        
+        if not target_list:
+            return
+        
+        # Find closest target within radius (but outside deadzone if enabled)
+        closest_target = None
+        closest_dist = float('inf')
+        
+        for target in target_list:
+            pos = target['pos']
+            dx = pos[0] - center_x
+            dy = pos[1] - center_y
+            dist = math.sqrt(dx * dx + dy * dy)
+            
+            # Check if target is within FOV radius
+            if dist < radius:
+                # If deadzone is enabled, check if target is outside deadzone
+                if not deadzone_enabled or dist >= deadzone_radius:
+                    if dist < closest_dist:
+                        closest_dist = dist
+                        closest_target = target
+        
+        if not closest_target:
+            return
+        
+        # Draw snapline from center to target
+        target_pos = closest_target['pos']
+        snapline_color = settings.get('aimbot_snapline_color', (255, 255, 255))
+        snapline_thickness = settings.get('aimbot_snapline_thickness', 2.0)
+        
+        overlay.draw_line_rgb(
+            center_x, center_y,
+            target_pos[0], target_pos[1],
+            snapline_color,
+            snapline_thickness
+        )
         
     except Exception:
         pass
@@ -3244,6 +4102,12 @@ def esp_overlay_thread():
             # Render Aimbot FOV circle (independent of main ESP toggle)
             render_aimbot_circle(overlay, settings)
             
+            # Render Custom Crosshair (independent of main ESP toggle)
+            render_custom_crosshair(overlay, settings)
+            
+            # Render Aimbot snaplines (dependent on ESP toggle)
+            render_aimbot_snaplines(overlay, pm, client, settings)
+            
             # Render ACS deadzone lines (independent of main ESP toggle)
             render_acs_deadzone_lines(overlay, pm, client, settings)
             
@@ -3256,6 +4120,54 @@ def esp_overlay_thread():
                 last_time = current_time
             
             overlay.draw_text(5, 5, f"OVERLAY FPS: {esp_overlay['fps']}", 255, 255, 255, size=16.0, stroke=True)
+            
+            # Draw status labels if enabled
+            if Active_Config.get("show_status_labels", True):
+                esp_status = "ON" if Active_Config.get("esp_enabled", True) else "OFF"
+                aimbot_status = "ON" if Active_Config.get("aimbot_enabled", False) else "OFF"
+                triggerbot_status = "ON" if Active_Config.get("triggerbot_enabled", False) else "OFF"
+                head_only_status = "ON" if Active_Config.get("triggerbot_head_only", False) else "OFF"
+                rcs_status = "ON" if Active_Config.get("rcs_enabled", False) else "OFF"
+                
+                # ESP status (green for ON, red for OFF)
+                esp_keybind = Keybinds_Config.get("esp_toggle_key", "").upper()
+                esp_label = f"({esp_keybind}) ESP: " if esp_keybind else "ESP: "
+                esp_status_x = 120 if esp_keybind else 45
+                overlay.draw_text(5, 25, esp_label, 255, 255, 255, size=12.0, stroke=True)
+                status_color = (0, 255, 0) if esp_status == "ON" else (255, 0, 0)
+                overlay.draw_text(esp_status_x, 25, esp_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
+                
+                # Aimbot status
+                aimbot_keybind = Keybinds_Config.get("aimbot_toggle_key", "").upper()
+                aimbot_label = f"({aimbot_keybind}) Aimbot: " if aimbot_keybind else "Aimbot: "
+                aimbot_status_x = 120 if aimbot_keybind else 75
+                overlay.draw_text(5, 40, aimbot_label, 255, 255, 255, size=12.0, stroke=True)
+                status_color = (0, 255, 0) if aimbot_status == "ON" else (255, 0, 0)
+                overlay.draw_text(aimbot_status_x, 40, aimbot_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
+                
+                # Triggerbot status
+                triggerbot_keybind = Keybinds_Config.get("triggerbot_toggle_key", "").upper()
+                triggerbot_label = f"({triggerbot_keybind}) Triggerbot: " if triggerbot_keybind else "Triggerbot: "
+                triggerbot_status_x = 120 if triggerbot_keybind else 105
+                overlay.draw_text(5, 55, triggerbot_label, 255, 255, 255, size=12.0, stroke=True)
+                status_color = (0, 255, 0) if triggerbot_status == "ON" else (255, 0, 0)
+                overlay.draw_text(triggerbot_status_x, 55, triggerbot_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
+                
+                # Triggerbot Head-Only status
+                head_only_keybind = Keybinds_Config.get("head_only_toggle_key", "").upper()
+                head_only_label = f"({head_only_keybind}) Triggerbot Head-Only: " if head_only_keybind else "Triggerbot Head-Only: "
+                head_only_status_x = 240 if head_only_keybind else 185
+                overlay.draw_text(5, 70, head_only_label, 255, 255, 255, size=12.0, stroke=True)
+                status_color = (0, 255, 0) if head_only_status == "ON" else (255, 0, 0)
+                overlay.draw_text(head_only_status_x, 70, head_only_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
+                
+                # RCS status
+                rcs_keybind = Keybinds_Config.get("rcs_toggle_key", "").upper()
+                rcs_label = f"({rcs_keybind}) RCS: " if rcs_keybind else "RCS: "
+                rcs_status_x = 110 if rcs_keybind else 50
+                overlay.draw_text(5, 85, rcs_label, 255, 255, 255, size=12.0, stroke=True)
+                status_color = (0, 255, 0) if rcs_status == "ON" else (255, 0, 0)
+                overlay.draw_text(rcs_status_x, 85, rcs_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
             
             overlay.end_paint()
             
@@ -3396,7 +4308,7 @@ def aimbot_thread():
             
             if require_key:
                 # Get aimbot key and check if it's held
-                aimbot_key = Keybinds_Config.get("aimbot_key", "lalt").lower()
+                aimbot_key = Keybinds_Config.get("aimbot_key", "alt").lower()
                 if aimbot_key == "none":
                     time.sleep(0.01)
                     continue
@@ -3410,8 +4322,11 @@ def aimbot_thread():
                 # Check if key is held
                 key_held = (win32api.GetAsyncKeyState(vk_code) & 0x8000) != 0
                 if not key_held:
-                    # Reset locked entity when key is released
+                    # Reset locked entity and accumulators when key is released
                     aimbot_state["locked_entity"] = None
+                    aimbot_state["accum_x"] = 0.0
+                    aimbot_state["accum_y"] = 0.0
+                    aimbot_state["is_targeting"] = False
                     time.sleep(0.002)
                     continue
             
@@ -3542,6 +4457,7 @@ def aimbot_thread():
                 continue
             
             if not target_list:
+                aimbot_state["is_targeting"] = False
                 time.sleep(0.002)
                 continue
             
@@ -3568,6 +4484,7 @@ def aimbot_thread():
                             closest_target = target
             
             if not closest_target:
+                aimbot_state["is_targeting"] = False
                 time.sleep(0.002)
                 continue
             
@@ -3596,29 +4513,60 @@ def aimbot_thread():
                 if aimbot_state.get("locked_entity") is None:
                     aimbot_state["locked_entity"] = closest_target["entity"]
             
+            # We have a valid target, set targeting state
+            aimbot_state["is_targeting"] = True
+            
             # Calculate mouse movement
             target_x, target_y = closest_target["pos"]
             dx = target_x - center_x
             dy = target_y - center_y
             
-            # Apply smoothing (higher smoothness = slower movement)
-            # smoothness ranges from 1-10, convert to alpha (1.0 to 0.1)
-            if smoothness <= 1:
-                alpha = 1.0
+            # Get movement type setting
+            movement_type = settings.get("aimbot_movement_type", "Dynamic")
+            
+            # Apply smoothing based on movement type
+            if movement_type == "Linear":
+                # Linear: constant speed regardless of distance
+                # Calculate direction and move at fixed speed based on smoothness
+                dist = math.sqrt(dx * dx + dy * dy)
+                if dist > 0:
+                    # Speed is inversely proportional to smoothness (higher smoothness = slower)
+                    # At smoothness 1, move ~10 pixels/frame; at smoothness 100, move ~0.1 pixels/frame
+                    speed = max(0.1, 10.0 / max(smoothness, 1.0))
+                    # Normalize direction and apply speed
+                    frac_x = (dx / dist) * speed
+                    frac_y = (dy / dist) * speed
+                    # Cap movement to not overshoot target
+                    if abs(frac_x) > abs(dx):
+                        frac_x = dx
+                    if abs(frac_y) > abs(dy):
+                        frac_y = dy
+                else:
+                    frac_x = 0
+                    frac_y = 0
             else:
-                alpha = 1.0 / smoothness
+                # Dynamic: speed based on distance percentage (original behavior)
+                if smoothness <= 1:
+                    alpha = 1.0
+                else:
+                    alpha = 1.0 / smoothness
+                frac_x = dx * alpha
+                frac_y = dy * alpha
             
-            move_x = int(dx * alpha)
-            move_y = int(dy * alpha)
+            aimbot_state["accum_x"] += frac_x
+            aimbot_state["accum_y"] += frac_y
             
-            # Ensure minimum movement if there's any delta
-            if move_x == 0 and dx != 0:
-                move_x = 1 if dx > 0 else -1
-            if move_y == 0 and dy != 0:
-                move_y = 1 if dy > 0 else -1
+            # Extract integer pixels from accumulators
+            move_x = int(aimbot_state["accum_x"])
+            move_y = int(aimbot_state["accum_y"])
             
-            # Move mouse
-            win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, move_x, move_y, 0, 0)
+            # Subtract the moved amount from accumulators (keep fractional remainder)
+            aimbot_state["accum_x"] -= move_x
+            aimbot_state["accum_y"] -= move_y
+            
+            # Only move if we have at least 1 pixel to move
+            if move_x != 0 or move_y != 0:
+                win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, move_x, move_y, 0, 0)
             
             # Small delay to prevent excessive CPU usage
             time.sleep(0.002)
@@ -3642,6 +4590,9 @@ def start_aimbot_thread():
     aimbot_state["settings"] = Active_Config.copy()
     aimbot_state["running"] = True
     aimbot_state["locked_entity"] = None
+    aimbot_state["accum_x"] = 0.0
+    aimbot_state["accum_y"] = 0.0
+    aimbot_state["is_targeting"] = False
     
     # Start thread
     aimbot_state["thread"] = threading.Thread(target=aimbot_thread, daemon=True)
@@ -3841,7 +4792,7 @@ def triggerbot_thread():
                         # Read head bone position (bone 6)
                         head_x = pm.read_float(bone_matrix + 6 * 0x20)
                         head_y = pm.read_float(bone_matrix + 6 * 0x20 + 0x4)
-                        head_z = pm.read_float(bone_matrix + 6 * 0x20 + 0x8) + 8  # Offset for head center
+                        head_z = pm.read_float(bone_matrix + 6 * 0x20 + 0x8)
                         
                         # Read leg position for bounding box calculation (bone 28)
                         leg_z = pm.read_float(bone_matrix + 28 * 0x20 + 0x8)
@@ -3983,123 +4934,6 @@ def stop_triggerbot_thread():
 # Background thread that automatically accepts CS2 matches when found.
 # =============================================================================
 
-def find_accept_button():
-    """
-    Find the green accept button on screen.
-    
-    Returns:
-        tuple: (x, y) coordinates of button center, or None if not found
-    """
-    try:
-        screenshot = ImageGrab.grab()
-        img = np.array(screenshot)
-        
-        # CS2 accept button green color (RGB 54, 183, 82)
-        color = (54, 183, 82)
-        color_match = np.all(img == color, axis=-1).astype(int)
-        kernel = np.ones((10, 10))
-        convolution = convolve2d(color_match, kernel, mode='valid')
-        y_coords, x_coords = np.where(convolution == 100)
-        
-        if len(y_coords) > 0:
-            x = x_coords[0] + 5
-            y = y_coords[0] + 5
-            return (x, y)
-    except Exception:
-        pass
-    return None
-
-
-def auto_accept_thread():
-    """
-    Auto accept background thread.
-    
-    Runs continuously while enabled:
-    1. Check if auto-accept is enabled
-    2. Take screenshot and search for accept button
-    3. Click accept button if found
-    4. Move mouse back to center
-    """
-    global auto_accept_state
-    
-    print("[AUTO ACCEPT] Thread starting...")
-    
-    while auto_accept_state["running"]:
-        try:
-            # Get settings from auto_accept_state
-            settings = auto_accept_state.get("settings", {})
-            if not settings:
-                settings = Active_Config.copy()
-            
-            # Check if auto-accept is enabled - sleep longer when disabled
-            if not settings.get("auto_accept_enabled", False):
-                time.sleep(2)  # Sleep longer when disabled to reduce overhead
-                continue
-            
-            # Only look for accept button when enabled
-            pos = find_accept_button()
-            if pos:
-                x, y = pos
-                debug_log(f"Accept button found at ({x}, {y}) - clicking", "INFO")
-                
-                # Click the accept button
-                pyautogui.moveTo(x, y)
-                pyautogui.click()
-                
-                # Move mouse back to center of screen
-                screen_width, screen_height = pyautogui.size()
-                pyautogui.moveTo(screen_width // 2, screen_height // 2)
-                
-                # Wait before checking again (to avoid double-clicking)
-                time.sleep(3)
-            else:
-                # Button not found, check again after a longer delay
-                time.sleep(1.0)
-                
-        except Exception as e:
-            time.sleep(2)
-    
-    print("[AUTO ACCEPT] Thread stopped")
-
-
-def start_auto_accept_thread():
-    """Start the auto-accept background thread."""
-    global auto_accept_state
-    
-    if auto_accept_state["running"]:
-        return
-    
-    debug_log("Starting auto-accept thread...", "INFO")
-    
-    # Initialize settings from Active_Config
-    auto_accept_state["settings"] = Active_Config.copy()
-    auto_accept_state["running"] = True
-    
-    # Start thread
-    auto_accept_state["thread"] = threading.Thread(target=auto_accept_thread, daemon=True)
-    auto_accept_state["thread"].start()
-    
-    debug_log("Auto-accept thread started", "SUCCESS")
-
-
-def stop_auto_accept_thread():
-    """Stop the auto-accept background thread."""
-    global auto_accept_state
-    
-    if not auto_accept_state["running"]:
-        return
-    
-    debug_log("Stopping auto-accept thread...", "INFO")
-    auto_accept_state["running"] = False
-    
-    # Wait for thread to finish
-    if auto_accept_state["thread"]:
-        auto_accept_state["thread"].join(timeout=2.0)
-        auto_accept_state["thread"] = None
-    
-    debug_log("Auto-accept thread stopped", "SUCCESS")
-
-
 # =============================================================================
 # ANTI FLASH THREAD
 # =============================================================================
@@ -4110,10 +4944,9 @@ def anti_flash_thread():
     """
     Anti-flash background thread.
     
-    Runs continuously while enabled:
-    1. Check if anti-flash is enabled
-    2. Get local player pawn
-    3. Set m_flFlashMaxAlpha to 0.0 to prevent flash effects
+    Runs continuously:
+    - When enabled: sets m_flFlashMaxAlpha to 0.0 repeatedly
+    - When disabled: sets m_flFlashMaxAlpha to 255.0 once, then stops writing
     """
     global anti_flash_state
     
@@ -4141,10 +4974,8 @@ def anti_flash_thread():
             if not settings:
                 settings = Active_Config.copy()
             
-            # Check if anti-flash is enabled
-            if not settings.get("anti_flash_enabled", False):
-                time.sleep(0.1)
-                continue
+            current_enabled = settings.get("anti_flash_enabled", False)
+            last_enabled = anti_flash_state.get("last_enabled", False)
             
             # Check if m_flFlashMaxAlpha offset is available
             if not m_flFlashMaxAlpha:
@@ -4163,10 +4994,17 @@ def anti_flash_thread():
             try:
                 local_player_pawn = pm.read_longlong(client + dwLocalPlayerPawn)
                 if local_player_pawn:
-                    # Set flash alpha to 0 to prevent flash effects
-                    pm.write_float(local_player_pawn + m_flFlashMaxAlpha, 0.0)
+                    if current_enabled != last_enabled:
+                        if not current_enabled:
+                            # Just disabled, set to 255 once
+                            pm.write_float(local_player_pawn + m_flFlashMaxAlpha, 255.0)
+                    elif current_enabled:
+                        # Enabled, set to 0.0
+                        pm.write_float(local_player_pawn + m_flFlashMaxAlpha, 0.0)
             except:
                 pass
+            
+            anti_flash_state["last_enabled"] = current_enabled
             
             # Check frequently for responsive anti-flash
             time.sleep(0.02)  # 20ms interval
@@ -4213,6 +5051,139 @@ def stop_anti_flash_thread():
         anti_flash_state["thread"] = None
     
     debug_log("Anti-flash thread stopped", "SUCCESS")
+
+
+# =============================================================================
+# HITSOUND THREAD
+# =============================================================================
+# Background thread that plays hitsound when total hits changes.
+# =============================================================================
+
+def hitsound_thread():
+    """
+    Hitsound background thread.
+    
+    Runs continuously while enabled:
+    1. Check if hitsound is enabled
+    2. Get local player pawn
+    3. Read total hits from bullet services
+    4. Play sound when hits change
+    """
+    global hitsound_state
+    
+    print("[HITSOUND] Thread starting...")
+    
+    # Wait for ESP overlay to connect to CS2 and provide pm/client
+    max_wait = 100  # 10 seconds max wait
+    wait_count = 0
+    while wait_count < max_wait:
+        if esp_overlay.get("pm") and esp_overlay.get("client"):
+            break
+        time.sleep(0.1)
+        wait_count += 1
+    
+    if not esp_overlay.get("pm") or not esp_overlay.get("client"):
+        print("[HITSOUND] Failed to get pm/client from ESP overlay")
+        return
+    
+    print("[HITSOUND] Connected to CS2 via ESP overlay")
+    
+    while hitsound_state["running"]:
+        try:
+            # Get settings from hitsound_state
+            settings = hitsound_state.get("settings", {})
+            if not settings:
+                settings = Active_Config.copy()
+            
+            # Check if hitsound is enabled
+            if not settings.get("hitsound_enabled", False):
+                time.sleep(0.1)
+                continue
+            
+            # Get pm and client from ESP overlay
+            pm = esp_overlay.get("pm")
+            client = esp_overlay.get("client")
+            
+            if not pm or not client:
+                time.sleep(0.1)
+                continue
+            
+            # Get local player pawn
+            try:
+                local_player_pawn = pm.read_longlong(client + dwLocalPlayerPawn)
+                if local_player_pawn:
+                    # Get bullet services
+                    pBulletServices = pm.read_longlong(local_player_pawn + 0x1678) #change this one
+                    if pBulletServices:
+                        total_hits = pm.read_int(pBulletServices + 0x40)
+                        
+                        if total_hits != hitsound_state["previous_total_hits"]:
+                            if total_hits == 0 and hitsound_state["previous_total_hits"] != 0:
+                                # totalHits changed from non-zero to zero, do not play hitsound
+                                pass
+                            else:
+                                # Play the hitsound
+                                try:
+                                    # Get selected hitsound type
+                                    hitsound_type = settings.get("hitsound_type", "hitmarker")
+                                    # Map to filename
+                                    filename_map = {
+                                        "hitmarker": "hitmarker.wav",
+                                        "criticalhit": "criticalhit.wav",
+                                        "metalhit": "metal.wav"
+                                    }
+                                    filename = filename_map.get(hitsound_type, "hitmarker.wav")
+                                    sound_path = os.path.join(TEMP_FOLDER, filename)
+                                    winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                                except:
+                                    pass  # Silently fail if sound file not found
+                            
+                            hitsound_state["previous_total_hits"] = total_hits
+            except:
+                pass
+            
+            # Check frequently
+            time.sleep(0.02)  # 20ms interval
+            
+        except Exception as e:
+            time.sleep(0.1)
+    
+    print("[HITSOUND] Thread stopped")
+
+
+def start_hitsound_thread():
+    """Start the hitsound background thread."""
+    global hitsound_state
+    
+    if hitsound_state["running"]:
+        return
+    
+    debug_log("Starting hitsound thread...", "INFO")
+    hitsound_state["settings"] = Active_Config.copy()
+    hitsound_state["running"] = True
+    hitsound_state["previous_total_hits"] = 0  # Reset
+    hitsound_state["thread"] = threading.Thread(target=hitsound_thread, daemon=True)
+    hitsound_state["thread"].start()
+    
+    debug_log("Hitsound thread started", "SUCCESS")
+
+
+def stop_hitsound_thread():
+    """Stop the hitsound background thread."""
+    global hitsound_state
+    
+    if not hitsound_state["running"]:
+        return
+    
+    debug_log("Stopping hitsound thread...", "INFO")
+    hitsound_state["running"] = False
+    
+    # Wait for thread to finish
+    if hitsound_state["thread"]:
+        hitsound_state["thread"].join(timeout=2.0)
+        hitsound_state["thread"] = None
+    
+    debug_log("Hitsound thread stopped", "SUCCESS")
 
 
 # =============================================================================
@@ -4392,6 +5363,11 @@ def rcs_thread():
     remaining_comp_x = 0.0
     remaining_comp_y = 0.0
     
+    # Continuous fire detection
+    shot_timestamps = []  # List of (timestamp, shots_fired) tuples
+    continuous_fire_window = 0.3  # 300ms window for continuous fire detection
+    min_continuous_shots = 2  # Need at least 2 shots in window to be continuous
+    
     while rcs_state["running"]:
         try:
             # Get settings from rcs_state (updated by main thread)
@@ -4465,6 +5441,10 @@ def rcs_thread():
                 
                 # Read shots fired count
                 shots_fired = pm.read_int(pawn_address + m_iShotsFired)
+                current_time = time.time()
+                
+                # Check if continuous fire only mode is enabled
+                continuous_only = settings.get("rcs_continuous_only", False)
                 
                 # Only apply RCS when shooting (shots_fired > 0)
                 if shots_fired <= 0:
@@ -4472,8 +5452,34 @@ def rcs_thread():
                     prev_punch_y = 0.0
                     remaining_comp_x = 0.0
                     remaining_comp_y = 0.0
+                    shot_timestamps.clear()  # Clear timestamps when not shooting
                     time.sleep(0.01)
                     continue
+                
+                # If continuous fire only is enabled, check if this is continuous fire
+                if continuous_only:
+                    # Update shot timestamps
+                    if len(shot_timestamps) == 0 or shots_fired > shot_timestamps[-1][1]:
+                        # New shot fired, add timestamp
+                        shot_timestamps.append((current_time, shots_fired))
+                    
+                    # Remove old timestamps outside the window
+                    shot_timestamps[:] = [
+                        (ts, sf) for ts, sf in shot_timestamps 
+                        if current_time - ts <= continuous_fire_window
+                    ]
+                    
+                    # Check if we have enough shots in the window to consider it continuous fire
+                    is_continuous = len(shot_timestamps) >= min_continuous_shots
+                    
+                    # Skip if not continuous fire
+                    if not is_continuous:
+                        prev_punch_x = 0.0
+                        prev_punch_y = 0.0
+                        remaining_comp_x = 0.0
+                        remaining_comp_y = 0.0
+                        time.sleep(0.01)
+                        continue
                 
                 # Read current aim punch angle as bytes for more atomic read (12 bytes = 3 floats: X, Y, Z)
                 # X = pitch (vertical), Y = yaw (horizontal)
@@ -4818,7 +5824,7 @@ def acs_thread():
                 time.sleep(0.005)
                 continue
             
-            # Apply smoothing
+            # Apply linear movement (constant speed regardless of distance)
             smoothness = settings.get("acs_smoothness", 5)
             if smoothness <= 0:
                 smoothness = 1
@@ -4827,10 +5833,14 @@ def acs_thread():
             if smoothness == 1:
                 move_y = int(dy)
             else:
-                movement_fraction = 1.0 / smoothness
-                move_y = int(dy * movement_fraction)
-                if dy != 0 and move_y == 0:
-                    move_y = 1 if dy > 0 else -1
+                # Linear: constant speed based on smoothness
+                # Speed is inversely proportional to smoothness
+                speed = max(1, 10.0 / smoothness)
+                # Move in the direction of target at constant speed
+                if dy > 0:
+                    move_y = int(min(speed, dy))  # Don't overshoot
+                else:
+                    move_y = int(max(-speed, dy))  # Don't overshoot
             
             # Move mouse (vertical only)
             win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, 0, move_y, 0, 0)
@@ -5002,9 +6012,31 @@ def on_test_clicked():
     
     time.sleep(0.5)  # Brief pause after CS2 detected
     
-    # Stage 3: Check manual offsets if enabled
+    # Stage 3: Installing Sounds
+    dpg.set_value("progress_launch", 0.50)
+    dpg.set_value("progress_status_text", "Installing Sounds...")
+    dpg.render_dearpygui_frame()  # Force UI update
+    
+    # Download sound files to temp folder
+    sound_files = [
+        (HITMARKER_SOUND_URL, "hitmarker.wav"),
+        (METALHIT_SOUND_URL, "metalhit.wav"),
+        (CRITICALHIT_SOUND_URL, "criticalhit.wav")
+    ]
+    
+    for url, filename in sound_files:
+        try:
+            filepath = os.path.join(TEMP_FOLDER, filename)
+            urllib.request.urlretrieve(url, filepath)
+            print(f"[SOUNDS] Downloaded {filename}")
+        except Exception as e:
+            print(f"[SOUNDS] Failed to download {filename}: {e}")
+    
+    time.sleep(1.0)
+    
+    # Stage 4: Check manual offsets if enabled
     if loader_settings["UseLocalOffsets"]:
-        dpg.set_value("progress_launch", 0.60)
+        dpg.set_value("progress_launch", 0.70)
         dpg.set_value("progress_status_text", "Checking manual offsets...")
         dpg.render_dearpygui_frame()  # Force UI update
         
@@ -5043,7 +6075,7 @@ def on_test_clicked():
         time.sleep(1.5)
     else:
         # Load offsets from GitHub
-        dpg.set_value("progress_launch", 0.60)
+        dpg.set_value("progress_launch", 0.70)
         dpg.set_value("progress_status_text", "Fetching offsets...")
         dpg.render_dearpygui_frame()  # Force UI update
         
@@ -5063,8 +6095,8 @@ def on_test_clicked():
         
         time.sleep(1.5)
     
-    # Stage 4: Starting cheat
-    dpg.set_value("progress_launch", 0.80)
+    # Stage 5: Starting cheat
+    dpg.set_value("progress_launch", 0.90)
     dpg.set_value("progress_status_text", "Starting cheat...")
     dpg.render_dearpygui_frame()  # Force UI update
     time.sleep(1.5)
@@ -5125,15 +6157,6 @@ def on_fps_cap_change(sender, value):
     debug_log(f"FPS Cap set to: {value}", "INFO")
 
 
-def on_auto_accept_toggle(sender, value):
-    """Handle auto-accept toggle."""
-    if auto_accept_state["settings"]:
-        auto_accept_state["settings"]["auto_accept_enabled"] = value
-    Active_Config["auto_accept_enabled"] = value
-    save_settings()
-    debug_log(f"Auto Accept {'enabled' if value else 'disabled'}", "INFO")
-
-
 def on_anti_flash_toggle(sender, value):
     """Handle anti-flash toggle."""
     if anti_flash_state["settings"]:
@@ -5141,6 +6164,37 @@ def on_anti_flash_toggle(sender, value):
     Active_Config["anti_flash_enabled"] = value
     save_settings()
     debug_log(f"Anti-Flash {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_hitsound_toggle(sender, value):
+    """Handle hitsound toggle."""
+    if hitsound_state["settings"]:
+        hitsound_state["settings"]["hitsound_enabled"] = value
+    Active_Config["hitsound_enabled"] = value
+    save_settings()
+    
+    # Show/hide hitsound dropdown based on toggle
+    if dpg.does_item_exist("combo_hitsound_type"):
+        dpg.configure_item("combo_hitsound_type", show=value)
+    if dpg.does_item_exist("tooltip_hitsound_type"):
+        show_tips = Active_Config.get("show_tooltips", True)
+        dpg.configure_item("tooltip_hitsound_type", show=value and show_tips)
+    
+    if value:
+        start_hitsound_thread()
+    else:
+        stop_hitsound_thread()
+    
+    debug_log(f"Hitsound {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_hitsound_type_change(sender, value):
+    """Handle hitsound type dropdown change."""
+    if hitsound_state["settings"]:
+        hitsound_state["settings"]["hitsound_type"] = value
+    Active_Config["hitsound_type"] = value
+    save_settings()
+    debug_log(f"Hitsound type set to: {value}", "INFO")
 
 
 def reset_fov_to_default():
@@ -5240,11 +6294,27 @@ def on_rcs_multiplier_change(sender, value):
     debug_log(f"RCS multiplier set to {value}", "INFO")
 
 
+def on_rcs_continuous_only_toggle(sender, value):
+    """Handle RCS continuous fire only toggle."""
+    if rcs_state["settings"]:
+        rcs_state["settings"]["rcs_continuous_only"] = value
+    Active_Config["rcs_continuous_only"] = value
+    save_settings()
+    debug_log(f"RCS continuous fire only {'enabled' if value else 'disabled'}", "INFO")
+
+
 def on_hide_on_tabout_toggle(sender, value):
     """Handle hide on tab-out toggle."""
     Active_Config["hide_on_tabout"] = value
     save_settings()
     debug_log(f"Hide on Tab-Out {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_show_status_labels_toggle(sender, value):
+    """Handle show status labels toggle."""
+    Active_Config["show_status_labels"] = value
+    save_settings()
+    debug_log(f"Status labels {'enabled' if value else 'disabled'}", "INFO")
 
 
 # List of all tooltip tags for show/hide functionality
@@ -5506,21 +6576,18 @@ def _continue_drag(cursor_x, cursor_y):
     
     # Only constrain to CS2 bounds for cheat window, not loader
     if app_state.get("current_window") == "cheat":
-        # Get CS2 window bounds to constrain cheat window position
-        cs2_x, cs2_y, cs2_width, cs2_height = get_cs2_window_rect()
-        if cs2_x is not None and cs2_width is not None:
-            # Clamp the cheat window position within CS2 bounds
-            # Prevent window from going outside CS2's client area
-            cheat_width = WINDOW_WIDTH
-            cheat_height = WINDOW_HEIGHT
-            
-            # Minimum X: CS2 left edge
-            # Maximum X: CS2 right edge minus cheat window width
-            new_x = max(cs2_x, min(new_x, cs2_x + cs2_width - cheat_width))
-            
-            # Minimum Y: CS2 top edge
-            # Maximum Y: CS2 bottom edge minus cheat window height
-            new_y = max(cs2_y, min(new_y, cs2_y + cs2_height - cheat_height))
+        # Get screen bounds to constrain window position
+        user32 = ctypes.windll.user32
+        screen_width = user32.GetSystemMetrics(0)
+        screen_height = user32.GetSystemMetrics(1)
+        
+        # Get current window dimensions
+        current_width = Active_Config.get("window_width", WINDOW_WIDTH)
+        current_height = Active_Config.get("window_height", WINDOW_HEIGHT)
+        
+        # Clamp the window position within screen bounds
+        new_x = max(0, min(new_x, screen_width - current_width))
+        new_y = max(0, min(new_y, screen_height - current_height))
     
     # Move window (SWP_NOSIZE = don't change size, SWP_NOZORDER = don't change Z-order)
     win32gui.SetWindowPos(
@@ -5692,6 +6759,48 @@ def disable_rounded_corners(hwnd):
         pass
 
 
+def apply_menu_transparency(alpha):
+    """
+    Apply transparency to the menu window.
+    
+    Uses Win32 layered window API to set the window alpha.
+    The window must already have WS_EX_LAYERED style applied.
+    
+    Args:
+        alpha: Transparency value (0-255, 255 = opaque)
+    """
+    try:
+        # Use stored window handle if available
+        hwnd = drag_state.get("hwnd")
+        if not hwnd:
+            # Fallback: find the cheat window by title
+            hwnd = win32gui.FindWindow(None, FALLBACK_TITLE)
+            if not hwnd:
+                # Try alternative titles
+                for title in [TITLE_URL, "CS2 Cheat"]:
+                    hwnd = win32gui.FindWindow(None, title)
+                    if hwnd:
+                        break
+        
+        if hwnd:
+            # Ensure window has layered style
+            current_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            if not (current_style & WS_EX_LAYERED):
+                new_style = current_style | WS_EX_LAYERED
+                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+            
+            # Set layered window attributes for transparency
+            # LWA_ALPHA = 0x2 (use alpha for entire window)
+            ctypes.windll.user32.SetLayeredWindowAttributes(
+                hwnd,
+                0,  # crKey (not used when LWA_ALPHA)
+                alpha,  # bAlpha (0-255)
+                0x2  # dwFlags (LWA_ALPHA)
+            )
+    except Exception as e:
+        debug_log(f"Failed to apply menu transparency: {e}", "ERROR")
+
+
 # =============================================================================
 # UI COMPONENTS
 # =============================================================================
@@ -5798,7 +6907,7 @@ def create_settings_tab():
             dpg.add_text("Cheat is currently offline, try again later.", color=(255, 0, 0), tag="txt_offline_message")
             
             # Bypass password system
-            dpg.add_spacer(height=5)
+            dpg.add_spacer(height=UI_SPACING_SMALL)
             dpg.add_text("Enter bypass password:", color=(255, 255, 255), tag="txt_bypass_label")
             dpg.add_input_text(tag="txt_bypass_password", password=True, width=200, hint="Password")
             dpg.add_button(label="Enter", callback=on_bypass_password_entered, tag="btn_bypass_enter")
@@ -5846,6 +6955,7 @@ def on_esp_toggle(sender, value):
         Active_Config["esp_enabled"] = value
         save_settings()
         debug_log(f"ESP {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_box_esp_toggle(sender, value):
@@ -5855,6 +6965,7 @@ def on_box_esp_toggle(sender, value):
         Active_Config["box_esp"] = value
         save_settings()
         debug_log(f"Box ESP {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_line_esp_toggle(sender, value):
@@ -5864,6 +6975,7 @@ def on_line_esp_toggle(sender, value):
         Active_Config["line_esp"] = value
         save_settings()
         debug_log(f"Line ESP {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_skeleton_esp_toggle(sender, value):
@@ -5873,6 +6985,7 @@ def on_skeleton_esp_toggle(sender, value):
         Active_Config["skeleton_esp"] = value
         save_settings()
         debug_log(f"Skeleton ESP {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_name_esp_toggle(sender, value):
@@ -5882,6 +6995,17 @@ def on_name_esp_toggle(sender, value):
         Active_Config["name_esp"] = value
         save_settings()
         debug_log(f"Name ESP {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
+
+
+def on_distance_esp_toggle(sender, value):
+    """Handle Distance ESP toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["distance_esp"] = value
+        Active_Config["distance_esp"] = value
+        save_settings()
+        debug_log(f"Distance ESP {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_health_bar_toggle(sender, value):
@@ -5891,6 +7015,7 @@ def on_health_bar_toggle(sender, value):
         Active_Config["health_bar"] = value
         save_settings()
         debug_log(f"Health Bar {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_armor_bar_toggle(sender, value):
@@ -5900,6 +7025,7 @@ def on_armor_bar_toggle(sender, value):
         Active_Config["armor_bar"] = value
         save_settings()
         debug_log(f"Armor Bar {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_head_dot_toggle(sender, value):
@@ -5909,6 +7035,7 @@ def on_head_dot_toggle(sender, value):
         Active_Config["head_dot"] = value
         save_settings()
         debug_log(f"Head Dot {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_bomb_esp_toggle(sender, value):
@@ -5920,6 +7047,21 @@ def on_bomb_esp_toggle(sender, value):
         debug_log(f"Bomb ESP {'enabled' if value else 'disabled'}", "INFO")
 
 
+def on_footstep_esp_toggle(sender, value):
+    """Handle Footstep ESP toggle."""
+    global footstep_esp_cache
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["footstep_esp"] = value
+        Active_Config["footstep_esp"] = value
+        save_settings()
+        # Clear footstep ESP cache when toggling off
+        if not value:
+            footstep_esp_cache["ring_cache"].clear()
+            footstep_esp_cache["last_velocity"].clear()
+            footstep_esp_cache["last_origin"].clear()
+        debug_log(f"Footstep ESP {'enabled' if value else 'disabled'}", "INFO")
+
+
 def on_spotted_esp_toggle(sender, value):
     """Handle Spotted ESP toggle."""
     if esp_overlay["settings"]:
@@ -5927,6 +7069,24 @@ def on_spotted_esp_toggle(sender, value):
         Active_Config["spotted_esp"] = value
         save_settings()
         debug_log(f"Spotted ESP {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_hide_spotted_players_toggle(sender, value):
+    """Handle Hide Spotted Players toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["hide_spotted_players"] = value
+        Active_Config["hide_spotted_players"] = value
+        save_settings()
+        debug_log(f"Hide spotted players {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_custom_crosshair_toggle(sender, value):
+    """Handle Custom Crosshair toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["custom_crosshair"] = value
+        Active_Config["custom_crosshair"] = value
+        save_settings()
+        debug_log(f"Custom Crosshair {'enabled' if value else 'disabled'}", "INFO")
 
 
 def on_targeting_type_change(sender, value):
@@ -5947,6 +7107,7 @@ def on_lines_position_change(sender, value):
     Active_Config["lines_position"] = value
     save_settings()
     debug_log(f"Lines position changed to: {value}", "INFO")
+    update_esp_preview()
 
 
 def on_antialiasing_change(sender, value):
@@ -5971,6 +7132,7 @@ def on_healthbar_type_change(sender, value):
         esp_overlay["settings"]["healthbar_type"] = value
     save_settings()
     debug_log(f"Healthbar type changed to: {value}", "INFO")
+    update_esp_preview()
 
 
 def on_box_type_change(sender, value):
@@ -5980,6 +7142,7 @@ def on_box_type_change(sender, value):
         esp_overlay["settings"]["box_type"] = value
     save_settings()
     debug_log(f"Box type changed to: {value}", "INFO")
+    update_esp_preview()
 
 
 def on_box_thickness_change(sender, value):
@@ -5989,6 +7152,7 @@ def on_box_thickness_change(sender, value):
     Active_Config["box_thickness"] = value
     save_settings()
     debug_log(f"Box thickness changed to: {value}", "INFO")
+    update_esp_preview()
 
 
 def on_snapline_thickness_change(sender, value):
@@ -5998,6 +7162,7 @@ def on_snapline_thickness_change(sender, value):
     Active_Config["snapline_thickness"] = value
     save_settings()
     debug_log(f"Snapline thickness changed to: {value}", "INFO")
+    update_esp_preview()
 
 
 def on_skeleton_thickness_change(sender, value):
@@ -6007,6 +7172,49 @@ def on_skeleton_thickness_change(sender, value):
     Active_Config["skeleton_thickness"] = value
     save_settings()
     debug_log(f"Skeleton thickness changed to: {value}", "INFO")
+    update_esp_preview()
+
+
+def on_custom_crosshair_scale_change(sender, value):
+    """Handle custom crosshair scale slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["custom_crosshair_scale"] = value
+    Active_Config["custom_crosshair_scale"] = value
+    save_settings()
+    debug_log(f"Custom crosshair scale changed to: {value}", "INFO")
+
+
+def on_custom_crosshair_thickness_change(sender, value):
+    """Handle custom crosshair thickness slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["custom_crosshair_thickness"] = value
+    Active_Config["custom_crosshair_thickness"] = value
+    save_settings()
+    debug_log(f"Custom crosshair thickness changed to: {value}", "INFO")
+
+
+def on_custom_crosshair_color_change(sender, value):
+    """Handle custom crosshair color picker change."""
+    # Convert DearPyGui color format to RGB tuple
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        rgb_color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
+    else:
+        rgb_color = (255, 255, 255)  # Default to white
+    
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["custom_crosshair_color"] = rgb_color
+    Active_Config["custom_crosshair_color"] = rgb_color
+    save_settings()
+    debug_log(f"Custom crosshair color changed to: {rgb_color}", "INFO")
+
+
+def on_custom_crosshair_shape_change(sender, value):
+    """Handle custom crosshair shape dropdown change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["custom_crosshair_shape"] = value
+    Active_Config["custom_crosshair_shape"] = value
+    save_settings()
+    debug_log(f"Custom crosshair shape changed to: {value}", "INFO")
 
 
 # =============================================================================
@@ -6020,6 +7228,7 @@ def on_radar_enabled_toggle(sender, value):
     Active_Config["radar_enabled"] = value
     save_settings()
     debug_log(f"Radar {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_radar_size_change(sender, value):
@@ -6050,12 +7259,65 @@ def on_radar_opacity_change(sender, value):
 
 
 def on_radar_position_change(sender, value):
-    """Handle radar position dropdown change."""
+    """Handle radar position dropdown change (deprecated)."""
+    pass  # No longer used
+
+
+def on_radar_x_change(sender, value):
+    """Handle radar X position slider change."""
     if esp_overlay["settings"]:
-        esp_overlay["settings"]["radar_position"] = value
-    Active_Config["radar_position"] = value
+        esp_overlay["settings"]["radar_x"] = value
+    Active_Config["radar_x"] = value
     save_settings()
-    debug_log(f"Radar position changed to: {value}", "INFO")
+    debug_log(f"Radar X position changed to: {value}", "INFO")
+
+
+def on_radar_y_change(sender, value):
+    """Handle radar Y position slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["radar_y"] = value
+    Active_Config["radar_y"] = value
+    save_settings()
+    debug_log(f"Radar Y position changed to: {value}", "INFO")
+
+
+def on_radar_overlap_game_toggle(sender, value):
+    """Handle radar overlap game toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["radar_overlap_game"] = value
+    Active_Config["radar_overlap_game"] = value
+    
+    # When enabling overlap mode, set the locked values
+    if value:
+        # Lock to game radar position values
+        locked_values = {
+            "radar_size": 250,
+            "radar_opacity": 50,
+            "radar_x": -810,
+            "radar_y": -390,
+            "radar_scale": 15.0
+        }
+        
+        # Update both active config and overlay settings
+        for key, locked_value in locked_values.items():
+            Active_Config[key] = locked_value
+            if esp_overlay["settings"]:
+                esp_overlay["settings"][key] = locked_value
+        
+        # Update UI sliders to show locked values
+        if dpg.does_item_exist("slider_radar_size"):
+            dpg.set_value("slider_radar_size", 250)
+        if dpg.does_item_exist("slider_radar_opacity"):
+            dpg.set_value("slider_radar_opacity", 50)
+        if dpg.does_item_exist("slider_radar_x"):
+            dpg.set_value("slider_radar_x", -810)
+        if dpg.does_item_exist("slider_radar_y"):
+            dpg.set_value("slider_radar_y", -390)
+        if dpg.does_item_exist("slider_radar_scale"):
+            dpg.set_value("slider_radar_scale", 15.0)
+    
+    save_settings()
+    debug_log(f"Radar overlap game mode: {'enabled' if value else 'disabled'}", "INFO")
 
 
 # =============================================================================
@@ -6071,6 +7333,7 @@ def on_enemy_box_color_change(sender, value):
     Active_Config["enemy_box_color"] = color
     save_settings()
     debug_log(f"Enemy box color changed to: {color}", "INFO")
+    update_esp_preview()
 
 
 def on_team_box_color_change(sender, value):
@@ -6081,6 +7344,7 @@ def on_team_box_color_change(sender, value):
     Active_Config["team_box_color"] = color
     save_settings()
     debug_log(f"Team box color changed to: {color}", "INFO")
+    update_esp_preview()
 
 
 def on_enemy_snapline_color_change(sender, value):
@@ -6169,6 +7433,7 @@ def on_spotted_text_size_change(sender, value):
         esp_overlay["settings"]["spotted_text_size"] = value
     Active_Config["spotted_text_size"] = value
     save_settings()
+    update_esp_preview()  # Update the preview with new text size
     debug_log(f"Spotted text size changed to: {value}", "INFO")
 
 
@@ -6178,6 +7443,7 @@ def on_name_text_size_change(sender, value):
         esp_overlay["settings"]["name_text_size"] = value
     Active_Config["name_text_size"] = value
     save_settings()
+    update_esp_preview()  # Update the preview with new text size
     debug_log(f"Nickname text size changed to: {value}", "INFO")
 
 
@@ -6254,6 +7520,7 @@ def on_aimbot_toggle(sender, value):
     Active_Config["aimbot_enabled"] = value
     save_settings()
     debug_log(f"Aimbot {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
 
 
 def on_aimbot_require_key_toggle(sender, value):
@@ -6375,6 +7642,17 @@ def on_aimbot_target_bone_change(sender, value):
     debug_log(f"Aimbot target bone changed to: {value}", "INFO")
 
 
+def on_aimbot_movement_type_change(sender, value):
+    """Handle aimbot movement type change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_movement_type"] = value
+    if aimbot_state["settings"]:
+        aimbot_state["settings"]["aimbot_movement_type"] = value
+    Active_Config["aimbot_movement_type"] = value
+    save_settings()
+    debug_log(f"Aimbot movement type changed to: {value}", "INFO")
+
+
 def on_aimbot_radius_color_change(sender, value):
     """Handle aimbot radius color change."""
     color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
@@ -6395,6 +7673,28 @@ def on_aimbot_deadzone_color_change(sender, value):
     Active_Config["aimbot_deadzone_color"] = color
     save_settings()
     debug_log(f"Aimbot deadzone color changed to: {color}", "INFO")
+
+
+def on_aimbot_targeting_radius_color_change(sender, value):
+    """Handle aimbot targeting radius color change."""
+    color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_targeting_radius_color"] = color
+    if aimbot_state["settings"]:
+        aimbot_state["settings"]["aimbot_targeting_radius_color"] = color
+    Active_Config["aimbot_targeting_radius_color"] = color
+    save_settings()
+    debug_log(f"Aimbot targeting radius color changed to: {color}", "INFO")
+
+
+def on_aimbot_targeting_deadzone_color_change(sender, value):
+    """Handle aimbot targeting deadzone color change."""
+    color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_targeting_deadzone_color"] = color
+    Active_Config["aimbot_targeting_deadzone_color"] = color
+    save_settings()
+    debug_log(f"Aimbot targeting deadzone color changed to: {color}", "INFO")
 
 
 def on_aimbot_key_button():
@@ -6448,6 +7748,77 @@ def on_aimbot_deadzone_radius_change(sender, value):
     Active_Config["aimbot_deadzone_radius"] = value
     save_settings()
     debug_log(f"Aimbot deadzone radius changed to: {value}", "INFO")
+
+
+def on_aimbot_radius_transparency_change(sender, value):
+    """Handle aimbot radius transparency change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_radius_transparency"] = value
+    Active_Config["aimbot_radius_transparency"] = value
+    save_settings()
+    debug_log(f"Aimbot radius transparency changed to: {value}", "INFO")
+
+
+def on_aimbot_deadzone_transparency_change(sender, value):
+    """Handle aimbot deadzone transparency change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_deadzone_transparency"] = value
+    Active_Config["aimbot_deadzone_transparency"] = value
+    save_settings()
+    debug_log(f"Aimbot deadzone transparency changed to: {value}", "INFO")
+
+
+def on_menu_transparency_change(sender, value):
+    """Handle menu transparency change."""
+    Active_Config["menu_transparency"] = value
+    save_settings()
+    apply_menu_transparency(value)
+    debug_log(f"Menu transparency changed to: {value}", "INFO")
+
+
+def on_aimbot_radius_thickness_change(sender, value):
+    """Handle aimbot radius thickness change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_radius_thickness"] = value
+    Active_Config["aimbot_radius_thickness"] = value
+    save_settings()
+    debug_log(f"Aimbot radius thickness changed to: {value}", "INFO")
+
+
+def on_aimbot_deadzone_thickness_change(sender, value):
+    """Handle aimbot deadzone thickness change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_deadzone_thickness"] = value
+    Active_Config["aimbot_deadzone_thickness"] = value
+    save_settings()
+    debug_log(f"Aimbot deadzone thickness changed to: {value}", "INFO")
+
+
+def on_aimbot_snapline_thickness_change(sender, value):
+    """Handle aimbot snapline thickness change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_snapline_thickness"] = value
+    Active_Config["aimbot_snapline_thickness"] = value
+    save_settings()
+    debug_log(f"Aimbot snapline thickness changed to: {value}", "INFO")
+
+
+def on_aimbot_snaplines_toggle(sender, value):
+    """Handle aimbot snaplines toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_snaplines"] = value
+    Active_Config["aimbot_snaplines"] = value
+    save_settings()
+    debug_log(f"Aimbot snaplines {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_aimbot_snapline_color_change(sender, value):
+    """Handle aimbot snapline color change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["aimbot_snapline_color"] = value
+    Active_Config["aimbot_snapline_color"] = value
+    save_settings()
+    debug_log(f"Aimbot snapline color changed to: {value}", "INFO")
 
 
 # =============================================================================
@@ -6588,10 +7959,7 @@ def on_acs_draw_deadzone_lines_toggle(sender, value):
     try:
         dpg.configure_item("chk_acs_always_show_deadzone_lines", show=value)
         dpg.configure_item("tooltip_acs_always_show_deadzone_lines", show=value and show_tips)
-        dpg.configure_item("slider_acs_line_width", show=value)
-        dpg.configure_item("tooltip_acs_line_width", show=value and show_tips)
-        dpg.configure_item("slider_acs_line_transparency", show=value)
-        dpg.configure_item("tooltip_acs_line_transparency", show=value and show_tips)
+        # Note: Line width and transparency sliders are now in Appearance tab and always visible
     except:
         pass
     debug_log(f"ACS draw deadzone lines {'enabled' if value else 'disabled'}", "INFO")
@@ -6643,6 +8011,18 @@ def on_acs_line_color_change(sender, value):
     debug_log(f"ACS line color changed to: {color}", "INFO")
 
 
+def on_footstep_esp_color_change(sender, value):
+    """Handle footstep ESP color change."""
+    # Convert from 0-1 float to 0-255 int tuple
+    color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["footstep_esp_color"] = color
+    Active_Config["footstep_esp_color"] = color
+    save_settings()
+    debug_log(f"Footstep ESP color changed to: {color}", "INFO")
+    update_esp_preview()
+
+
 def on_acs_key_button():
     """Handle ACS key bind button click."""
     global keybind_listener
@@ -6671,6 +8051,58 @@ def on_font_change(sender, value):
     save_settings()
     apply_font(value)
     debug_log(f"Menu font changed to: {value}", "INFO")
+
+
+def on_window_width_change(sender, value):
+    """Handle window width slider change."""
+    Active_Config["window_width"] = value
+    save_settings()
+    dpg.configure_viewport(0, width=value)
+    
+    # Ensure window stays within screen bounds after resize
+    import ctypes
+    user32 = ctypes.windll.user32
+    screen_width = user32.GetSystemMetrics(0)
+    screen_height = user32.GetSystemMetrics(1)
+    
+    current_pos = dpg.get_viewport_pos()
+    current_x, current_y = current_pos
+    current_height = Active_Config.get("window_height", WINDOW_HEIGHT)
+    
+    # Clamp position
+    new_x = max(0, min(current_x, screen_width - value))
+    new_y = max(0, min(current_y, screen_height - current_height))
+    
+    if new_x != current_x or new_y != current_y:
+        dpg.set_viewport_pos([new_x, new_y])
+    
+    debug_log(f"Window width changed to: {value}", "INFO")
+
+
+def on_window_height_change(sender, value):
+    """Handle window height slider change."""
+    Active_Config["window_height"] = value
+    save_settings()
+    dpg.configure_viewport(0, height=value)
+    
+    # Ensure window stays within screen bounds after resize
+    import ctypes
+    user32 = ctypes.windll.user32
+    screen_width = user32.GetSystemMetrics(0)
+    screen_height = user32.GetSystemMetrics(1)
+    
+    current_pos = dpg.get_viewport_pos()
+    current_x, current_y = current_pos
+    current_width = Active_Config.get("window_width", WINDOW_WIDTH)
+    
+    # Clamp position
+    new_x = max(0, min(current_x, screen_width - current_width))
+    new_y = max(0, min(current_y, screen_height - value))
+    
+    if new_x != current_x or new_y != current_y:
+        dpg.set_viewport_pos([new_x, new_y])
+    
+    debug_log(f"Window height changed to: {value}", "INFO")
 
 
 def setup_fonts():
@@ -6924,6 +8356,442 @@ def on_exit_key_button():
         pass
 
 
+def on_aimbot_toggle_key_button():
+    """Handle aimbot toggle key bind button click."""
+    global keybind_listener
+    keybind_listener["listening"] = True
+    keybind_listener["target"] = "aimbot_toggle_key"
+    # Update button text to show we're listening
+    try:
+        dpg.set_item_label("btn_bind_aimbot_toggle_cheat", "Press any key...")
+    except:
+        pass
+
+
+def on_head_only_toggle_key_button():
+    """Handle head-only toggle key bind button click."""
+    global keybind_listener
+    keybind_listener["listening"] = True
+    keybind_listener["target"] = "head_only_toggle_key"
+    # Update button text to show we're listening
+    try:
+        dpg.set_item_label("btn_bind_head_only_toggle_cheat", "Press any key...")
+    except:
+        pass
+
+
+def on_rcs_toggle_key_button():
+    """Handle RCS toggle key bind button click."""
+    global keybind_listener
+    keybind_listener["listening"] = True
+    keybind_listener["target"] = "rcs_toggle_key"
+    # Update button text to show we're listening
+    try:
+        dpg.set_item_label("btn_bind_rcs_toggle_cheat", "Press any key...")
+    except:
+        pass
+
+
+def update_esp_preview():
+    """
+    Update the ESP preview canvas with current settings.
+    Draws simplified ESP elements to show what they look like.
+    """
+    try:
+        # Clear the canvas
+        dpg.delete_item("esp_preview_canvas", children_only=True)
+        
+        # Get current ESP settings
+        settings = Active_Config.copy()
+        
+        # Only draw if ESP is enabled
+        if not settings.get("esp_enabled", True):
+            # Draw disabled message
+            dpg.draw_text((200, 150), "ESP Disabled", color=(128, 128, 128), size=20, parent="esp_preview_canvas")
+            return
+        
+        canvas_width = 400
+        canvas_height = 300
+        
+        # Draw background
+        dpg.draw_rectangle((0, 0), (canvas_width, canvas_height), color=(20, 20, 20), fill=True, parent="esp_preview_canvas")
+        
+        # Draw some sample ESP elements
+        # Sample enemy player (red) - positioned more realistically
+        enemy_x, enemy_y = 120, 100  # Left side, aligned
+        draw_preview_player(enemy_x, enemy_y, "Enemy", settings, is_enemy=True)
+        
+        # Sample team player (green) - positioned on right side, aligned
+        team_x, team_y = 280, 100  # Right side, same height as enemy
+        draw_preview_player(team_x, team_y, "Teammate", settings, is_enemy=False)
+        
+        # Draw radar preview if enabled (top-right corner)
+        if settings.get("radar_enabled", False):
+            draw_preview_radar(settings)
+            
+        # Aimbot FOV preview removed - only shown in actual game overlay
+            
+    except Exception as e:
+        debug_log(f"Error updating ESP preview: {str(e)}", "ERROR")
+
+
+def draw_preview_player(x, y, name, settings, is_enemy=True):
+    """
+    Draw a preview ESP player at the given position.
+    More accurate to real ESP rendering.
+    """
+    try:
+        # Get colors based on team
+        if is_enemy:
+            box_color = settings.get('enemy_box_color', (196, 30, 58))
+            snapline_color = settings.get('enemy_snapline_color', (196, 30, 58))
+            skeleton_color = settings.get('enemy_skeleton_color', (255, 255, 255))
+            head_dot_color = settings.get('enemy_head_dot_color', (255, 255, 0))
+        else:
+            box_color = settings.get('team_box_color', (71, 167, 106))
+            snapline_color = settings.get('team_snapline_color', (71, 167, 106))
+            skeleton_color = settings.get('team_skeleton_color', (255, 255, 255))
+            head_dot_color = settings.get('team_head_dot_color', (255, 255, 0))
+        
+        # Convert colors to Dear PyGui format (0-255)
+        box_color = tuple(int(c) for c in box_color)
+        snapline_color = tuple(int(c) for c in snapline_color)
+        skeleton_color = tuple(int(c) for c in skeleton_color)
+        head_dot_color = tuple(int(c) for c in head_dot_color)
+        
+        # Realistic player proportions (based on real ESP calculations)
+        # deltaZ represents the screen space distance from head to feet
+        deltaZ = 120  # Fixed for preview - represents player height in screen pixels (increased for bigger preview)
+        box_width = deltaZ // 2  # Real ESP calculation: box_width = deltaZ // 2
+        
+        # Player positions (head at top, feet at bottom)
+        head_y = y
+        feet_y = y + deltaZ
+        
+        # Box boundaries
+        leftX = x - box_width // 2
+        rightX = x + box_width // 2
+        
+        # Draw snaplines first (behind everything else)
+        if settings.get('line_esp', True):
+            thickness = settings.get('snapline_thickness', 1.5)
+            lines_position = settings.get('lines_position', 'Bottom')
+            
+            if lines_position == 'Top':
+                # Line from top center to head
+                dpg.draw_line((200, 0), (x, head_y), color=snapline_color, thickness=thickness, parent="esp_preview_canvas")
+            else:
+                # Line from bottom center to feet
+                dpg.draw_line((200, 300), (x, feet_y), color=snapline_color, thickness=thickness, parent="esp_preview_canvas")
+        
+        # Draw box ESP
+        if settings.get('box_esp', True):
+            thickness = settings.get('box_thickness', 1.5)
+            box_type = settings.get('box_type', '2D')
+            
+            if box_type == '2D':
+                # 2D box - simple rectangle
+                dpg.draw_rectangle((leftX, head_y), (rightX, feet_y), 
+                                 color=box_color, thickness=thickness, parent="esp_preview_canvas")
+            else:
+                # 3D box - with depth lines (simplified)
+                dpg.draw_rectangle((leftX, head_y), (rightX, feet_y), 
+                                 color=box_color, thickness=thickness, parent="esp_preview_canvas")
+                # Add depth lines
+                depth_offset = 8
+                dpg.draw_line((leftX, head_y), (leftX - depth_offset//2, head_y - depth_offset), 
+                             color=box_color, thickness=thickness, parent="esp_preview_canvas")
+                dpg.draw_line((rightX, head_y), (rightX - depth_offset//2, head_y - depth_offset), 
+                             color=box_color, thickness=thickness, parent="esp_preview_canvas")
+        
+        # Draw health and armor bars
+        healthbar_type = settings.get('healthbar_type', 'Vertical Left')
+        bar_thickness = 3
+        
+        # Sample values
+        health = 85 if is_enemy else 100
+        armor = 50 if is_enemy else 100
+        hp_percent = health / 100.0
+        armor_percent = armor / 100.0
+        
+        if settings.get('health_bar', True):
+            if healthbar_type == 'Vertical Left':
+                # Health bar on the left
+                hp_height = int(deltaZ * hp_percent)
+                hp_bar_x = leftX - 6
+                # Background
+                dpg.draw_rectangle((hp_bar_x, head_y), (hp_bar_x + bar_thickness, feet_y), 
+                                 color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
+                # Health fill
+                health_color = (0, 255, 0) if hp_percent > 0.5 else (255, 255, 0) if hp_percent > 0.25 else (255, 0, 0)
+                dpg.draw_rectangle((hp_bar_x, feet_y - hp_height), (hp_bar_x + bar_thickness, feet_y), 
+                                 color=health_color, fill=True, parent="esp_preview_canvas")
+                
+                # Armor bar on the right of health bar
+                if settings.get('armor_bar', True) and armor > 0:
+                    armor_height = int(deltaZ * armor_percent)
+                    armor_bar_x = hp_bar_x - 5
+                    dpg.draw_rectangle((armor_bar_x, head_y), (armor_bar_x + bar_thickness, feet_y), 
+                                     color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
+                    dpg.draw_rectangle((armor_bar_x, feet_y - armor_height), (armor_bar_x + bar_thickness, feet_y), 
+                                     color=(0, 100, 255), fill=True, parent="esp_preview_canvas")
+                                     
+            elif healthbar_type == 'Vertical Right':
+                # Health bar on the right
+                hp_height = int(deltaZ * hp_percent)
+                hp_bar_x = rightX + 3
+                dpg.draw_rectangle((hp_bar_x, head_y), (hp_bar_x + bar_thickness, feet_y), 
+                                 color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
+                health_color = (0, 255, 0) if hp_percent > 0.5 else (255, 255, 0) if hp_percent > 0.25 else (255, 0, 0)
+                dpg.draw_rectangle((hp_bar_x, feet_y - hp_height), (hp_bar_x + bar_thickness, feet_y), 
+                                 color=health_color, fill=True, parent="esp_preview_canvas")
+                
+                # Armor bar to the right of health bar
+                if settings.get('armor_bar', True) and armor > 0:
+                    armor_height = int(deltaZ * armor_percent)
+                    armor_bar_x = hp_bar_x + 4
+                    dpg.draw_rectangle((armor_bar_x, head_y), (armor_bar_x + bar_thickness, feet_y), 
+                                     color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
+                    dpg.draw_rectangle((armor_bar_x, feet_y - armor_height), (armor_bar_x + bar_thickness, feet_y), 
+                                     color=(0, 100, 255), fill=True, parent="esp_preview_canvas")
+                                     
+            elif healthbar_type == 'Horizontal Above':
+                # Health bar above head
+                hp_width = int(box_width * hp_percent)
+                bar_y = head_y - 7
+                dpg.draw_rectangle((leftX, bar_y), (rightX, bar_y + bar_thickness), 
+                                 color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
+                health_color = (0, 255, 0) if hp_percent > 0.5 else (255, 255, 0) if hp_percent > 0.25 else (255, 0, 0)
+                dpg.draw_rectangle((leftX, bar_y), (leftX + hp_width, bar_y + bar_thickness), 
+                                 color=health_color, fill=True, parent="esp_preview_canvas")
+                
+                # Armor bar above health bar
+                if settings.get('armor_bar', True) and armor > 0:
+                    armor_width = int(box_width * armor_percent)
+                    armor_bar_y = bar_y - 4
+                    dpg.draw_rectangle((leftX, armor_bar_y), (rightX, armor_bar_y + bar_thickness), 
+                                     color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
+                    dpg.draw_rectangle((leftX, armor_bar_y), (leftX + armor_width, armor_bar_y + bar_thickness), 
+                                     color=(0, 100, 255), fill=True, parent="esp_preview_canvas")
+                                     
+            elif healthbar_type == 'Horizontal Below':
+                # Health bar below feet
+                hp_width = int(box_width * hp_percent)
+                bar_y = feet_y + 3
+                dpg.draw_rectangle((leftX, bar_y), (rightX, bar_y + bar_thickness), 
+                                 color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
+                health_color = (0, 255, 0) if hp_percent > 0.5 else (255, 255, 0) if hp_percent > 0.25 else (255, 0, 0)
+                dpg.draw_rectangle((leftX, bar_y), (leftX + hp_width, bar_y + bar_thickness), 
+                                 color=health_color, fill=True, parent="esp_preview_canvas")
+                
+                # Armor bar below health bar
+                if settings.get('armor_bar', True) and armor > 0:
+                    armor_width = int(box_width * armor_percent)
+                    armor_bar_y = bar_y + 4
+                    dpg.draw_rectangle((leftX, armor_bar_y), (rightX, armor_bar_y + bar_thickness), 
+                                     color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
+                    dpg.draw_rectangle((leftX, armor_bar_y), (leftX + armor_width, armor_bar_y + bar_thickness), 
+                                     color=(0, 100, 255), fill=True, parent="esp_preview_canvas")
+        
+        # Draw skeleton if enabled
+        if settings.get('skeleton_esp', True):
+            thickness = settings.get('skeleton_thickness', 1.5)
+            # More realistic skeleton proportions based on actual bone positions (scaled for bigger preview)
+            scale_factor = deltaZ / 80.0  # Scale based on deltaZ
+            
+            # Head
+            head_center = (x, head_y + int(8 * scale_factor))
+            dpg.draw_circle(head_center, 6, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            
+            # Neck to shoulders
+            neck = (x, head_y + int(16 * scale_factor))
+            shoulders_left = (x - 12, head_y + int(24 * scale_factor))
+            shoulders_right = (x + 12, head_y + int(24 * scale_factor))
+            
+            # Arms
+            elbows_left = (x - 18, head_y + int(40 * scale_factor))
+            elbows_right = (x + 18, head_y + int(40 * scale_factor))
+            hands_left = (x - 24, head_y + int(56 * scale_factor))
+            hands_right = (x + 24, head_y + int(56 * scale_factor))
+            
+            # Body
+            hips_left = (x - 8, head_y + int(56 * scale_factor))
+            hips_right = (x + 8, head_y + int(56 * scale_factor))
+            
+            # Legs
+            knees_left = (x - 8, head_y + int(72 * scale_factor))
+            knees_right = (x + 8, head_y + int(72 * scale_factor))
+            feet_left = (x - 8, feet_y)
+            feet_right = (x + 8, feet_y)
+            
+            # Draw skeleton lines
+            # Head to neck
+            dpg.draw_line(head_center, neck, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            
+            # Neck to shoulders
+            dpg.draw_line(neck, shoulders_left, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            dpg.draw_line(neck, shoulders_right, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            
+            # Shoulders to elbows
+            dpg.draw_line(shoulders_left, elbows_left, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            dpg.draw_line(shoulders_right, elbows_right, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            
+            # Elbows to hands
+            dpg.draw_line(elbows_left, hands_left, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            dpg.draw_line(elbows_right, hands_right, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            
+            # Body - single vertical line for torso
+            torso_bottom = (x, head_y + int(56 * scale_factor))  # Center of hips
+            dpg.draw_line(neck, torso_bottom, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            dpg.draw_line(hips_left, hips_right, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            
+            # Legs
+            dpg.draw_line(hips_left, knees_left, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            dpg.draw_line(hips_right, knees_right, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            dpg.draw_line(knees_left, feet_left, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+            dpg.draw_line(knees_right, feet_right, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
+        
+        # Draw head dot if enabled
+        if settings.get('head_dot', True):
+            # Position at head center
+            dpg.draw_circle((x, head_y + int(8 * scale_factor)), 4, color=head_dot_color, fill=True, parent="esp_preview_canvas")
+        
+        # Calculate text Y offset based on healthbar type (like real ESP)
+        healthbar_type = settings.get('healthbar_type', 'Vertical Left')
+        scale_factor = deltaZ / 80.0  # Scale factor for bigger preview
+        
+        # Get text sizes for positioning calculations
+        spotted_enabled = settings.get('spotted_esp', True)
+        name_enabled = settings.get('name_esp', True)
+        distance_enabled = settings.get('distance_esp', True)
+        spotted_size = settings.get('spotted_text_size', 12.0) if spotted_enabled else 0
+        name_size = settings.get('name_text_size', 14.0) if name_enabled else 0
+        
+        # Calculate total height needed for text stack
+        text_stack_height = 0
+        if spotted_enabled:
+            text_stack_height += spotted_size
+        if name_enabled:
+            text_stack_height += name_size
+        if spotted_enabled and name_enabled:
+            text_stack_height += int(max(spotted_size, name_size, 12) * 0.8)  # Add spacing between texts
+        
+        # Add padding above text stack
+        text_padding = int(8 * scale_factor)
+        total_text_height = text_stack_height + text_padding
+        
+        # Base offset depends on healthbar type
+        if healthbar_type == 'Horizontal Above':
+            if settings.get('armor_bar', True) and armor > 0:
+                base_y_offset = head_y - int(20 * scale_factor) - total_text_height  # Above armor bar
+            else:
+                base_y_offset = head_y - int(12 * scale_factor) - total_text_height  # Above health bar
+        else:
+            base_y_offset = head_y - int(8 * scale_factor) - total_text_height  # Just above head
+        
+        # Draw spotted indicator first (above name)
+        spotted_y = base_y_offset
+        if settings.get('spotted_esp', True):
+            spotted_color = settings.get('spotted_color', (0, 255, 0))
+            spotted_text = "SPOTTED"
+            # Center the spotted text
+            text_width_factor = len(spotted_text) * 3.0 * (spotted_size / 14.0)
+            dpg.draw_text((x - text_width_factor, spotted_y), spotted_text, color=spotted_color, size=spotted_size, parent="esp_preview_canvas")
+        
+        # Draw player name below spotted with dynamic spacing
+        spacing = int(max(spotted_size, name_size, 12) * 0.8)  # Dynamic spacing based on text sizes
+        name_y = spotted_y + spacing
+        if settings.get('name_esp', True):
+            # Center the text based on name length and font size
+            text_width_factor = len(name) * 3.5 * (name_size / 14.0)
+            dpg.draw_text((x - text_width_factor, name_y), name, color=(255, 255, 255), size=name_size, parent="esp_preview_canvas")
+        
+        # Draw distance at center of player
+        if settings.get('distance_esp', True):
+            distance_text = "25m"  # Sample distance
+            center_y = (head_y + feet_y) / 2
+            text_width_factor = len(distance_text) * 2.5 * (12.0 / 14.0)  # Approximate width
+            dpg.draw_text((x - text_width_factor, center_y - 6), distance_text, color=(255, 255, 255), size=12.0, parent="esp_preview_canvas")
+            
+    except Exception as e:
+        debug_log(f"Error drawing preview player: {str(e)}", "ERROR")
+
+
+def draw_preview_radar(settings):
+    """
+    Draw a preview radar in the corner.
+    """
+    try:
+        radar_size = min(80, settings.get('radar_size', 200) // 3)  # Scale down for preview
+        radar_x = 320
+        radar_y = 20
+        
+        # Radar background
+        opacity = settings.get('radar_opacity', 180)
+        bg_color = settings.get('radar_bg_color', (0, 0, 0))
+        bg_color = tuple(list(bg_color) + [opacity])
+        
+        dpg.draw_rectangle((radar_x - radar_size//2, radar_y - radar_size//2), 
+                          (radar_x + radar_size//2, radar_y + radar_size//2), 
+                          color=bg_color, fill=True, parent="esp_preview_canvas")
+        
+        # Radar border
+        border_color = settings.get('radar_border_color', (128, 128, 128))
+        dpg.draw_rectangle((radar_x - radar_size//2, radar_y - radar_size//2), 
+                          (radar_x + radar_size//2, radar_y + radar_size//2), 
+                          color=border_color, thickness=1, parent="esp_preview_canvas")
+        
+        # Radar crosshair
+        crosshair_color = settings.get('radar_crosshair_color', (77, 77, 77))
+        dpg.draw_line((radar_x - radar_size//4, radar_y), (radar_x + radar_size//4, radar_y), 
+                     color=crosshair_color, thickness=1, parent="esp_preview_canvas")
+        dpg.draw_line((radar_x, radar_y - radar_size//4), (radar_x, radar_y + radar_size//4), 
+                     color=crosshair_color, thickness=1, parent="esp_preview_canvas")
+        
+        # Sample player dots
+        player_color = settings.get('radar_player_color', (255, 255, 255))
+        enemy_color = settings.get('radar_enemy_color', (255, 0, 0))
+        team_color = settings.get('radar_team_color', (0, 255, 0))
+        
+        # Local player (center)
+        dpg.draw_circle((radar_x, radar_y), 2, color=player_color, fill=True, parent="esp_preview_canvas")
+        
+        # Enemy
+        dpg.draw_circle((radar_x + 15, radar_y - 10), 2, color=enemy_color, fill=True, parent="esp_preview_canvas")
+        
+        # Team
+        dpg.draw_circle((radar_x - 12, radar_y + 8), 2, color=team_color, fill=True, parent="esp_preview_canvas")
+        
+    except Exception as e:
+        debug_log(f"Error drawing preview radar: {str(e)}", "ERROR")
+
+
+def draw_preview_aimbot_fov(settings):
+    """
+    Draw aimbot FOV circle preview.
+    """
+    try:
+        radius = settings.get('aimbot_radius', 50) // 2  # Scale down for preview
+        center_x, center_y = 200, 200  # Moved down to avoid player overlap
+        
+        color = settings.get('aimbot_radius_color', (255, 0, 0))
+        color = tuple(int(c) for c in color)
+        
+        # Draw FOV circle
+        dpg.draw_circle((center_x, center_y), radius, color=color, thickness=2, parent="esp_preview_canvas")
+        
+        # Draw deadzone if enabled
+        if settings.get('aimbot_deadzone_enabled', False) and settings.get('aimbot_show_deadzone', False):
+            deadzone_radius = settings.get('aimbot_deadzone_radius', 10) // 2
+            deadzone_color = settings.get('aimbot_deadzone_color', (255, 255, 0))
+            deadzone_color = tuple(int(c) for c in deadzone_color)
+            
+            dpg.draw_circle((center_x, center_y), deadzone_radius, color=deadzone_color, thickness=1, parent="esp_preview_canvas")
+            
+    except Exception as e:
+        debug_log(f"Error drawing preview aimbot FOV: {str(e)}", "ERROR")
+
+
 def create_esp_tab():
     """
     Create the ESP settings tab content with Toggles and Options subtabs.
@@ -6990,6 +8858,16 @@ def create_esp_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_name_esp")
                 
                 dpg.add_checkbox(
+                    label="Show Distance", 
+                    default_value=Active_Config.get("distance_esp", True),
+                    tag="chk_distance_esp",
+                    callback=on_distance_esp_toggle
+                )
+                with dpg.tooltip("chk_distance_esp", tag="tooltip_distance_esp", show=show_tips):
+                    dpg.add_text("Display distance to players at center of boxes")
+                ALL_TOOLTIP_TAGS.append("tooltip_distance_esp")
+                
+                dpg.add_checkbox(
                     label="Health Bar", 
                     default_value=Active_Config.get("health_bar", True),
                     tag="chk_health_bar",
@@ -7030,6 +8908,16 @@ def create_esp_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_bomb_esp")
                 
                 dpg.add_checkbox(
+                    label="Footstep ESP", 
+                    default_value=Active_Config.get("footstep_esp", False),
+                    tag="chk_footstep_esp",
+                    callback=on_footstep_esp_toggle
+                )
+                with dpg.tooltip("chk_footstep_esp", tag="tooltip_footstep_esp", show=show_tips):
+                    dpg.add_text("Show expanding rings when enemies make noise")
+                ALL_TOOLTIP_TAGS.append("tooltip_footstep_esp")
+                
+                dpg.add_checkbox(
                     label="Spotted Status", 
                     default_value=Active_Config.get("spotted_esp", True),
                     tag="chk_spotted_esp",
@@ -7038,6 +8926,26 @@ def create_esp_tab():
                 with dpg.tooltip("chk_spotted_esp", tag="tooltip_spotted_esp", show=show_tips):
                     dpg.add_text("Show if player is visible to your team")
                 ALL_TOOLTIP_TAGS.append("tooltip_spotted_esp")
+                
+                dpg.add_checkbox(
+                    label="Hide Spotted Players", 
+                    default_value=Active_Config.get("hide_spotted_players", False),
+                    tag="chk_hide_spotted_players",
+                    callback=on_hide_spotted_players_toggle
+                )
+                with dpg.tooltip("chk_hide_spotted_players", tag="tooltip_hide_spotted_players", show=show_tips):
+                    dpg.add_text("Hide ESP elements (boxes, lines, skeleton, name, bars, dot) for spotted players")
+                ALL_TOOLTIP_TAGS.append("tooltip_hide_spotted_players")
+                
+                dpg.add_checkbox(
+                    label="Custom Crosshair", 
+                    default_value=Active_Config.get("custom_crosshair", False),
+                    tag="chk_custom_crosshair",
+                    callback=on_custom_crosshair_toggle
+                )
+                with dpg.tooltip("chk_custom_crosshair", tag="tooltip_custom_crosshair", show=show_tips):
+                    dpg.add_text("Show custom crosshair at screen center")
+                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair")
             
             # =========== OPTIONS SUBTAB ===========
             with dpg.tab(label="Options"):
@@ -7164,6 +9072,65 @@ def create_esp_tab():
                 with dpg.tooltip("slider_name_text_size", tag="tooltip_name_text_size", show=show_tips):
                     dpg.add_text("Font size for player nickname text")
                 ALL_TOOLTIP_TAGS.append("tooltip_name_text_size")
+                
+                dpg.add_separator()
+                dpg.add_text("Crosshair Options")
+                
+                dpg.add_slider_float(
+                    label="Scale",
+                    default_value=Active_Config.get("custom_crosshair_scale", 1.0),
+                    min_value=0.5,
+                    max_value=3.0,
+                    tag="slider_custom_crosshair_scale",
+                    callback=on_custom_crosshair_scale_change,
+                    format="%.1f"
+                )
+                with dpg.tooltip("slider_custom_crosshair_scale", tag="tooltip_custom_crosshair_scale", show=show_tips):
+                    dpg.add_text("Size multiplier for custom crosshair")
+                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_scale")
+                
+                dpg.add_slider_float(
+                    label="Thickness",
+                    default_value=Active_Config.get("custom_crosshair_thickness", 2.0),
+                    min_value=1.0,
+                    max_value=5.0,
+                    tag="slider_custom_crosshair_thickness",
+                    callback=on_custom_crosshair_thickness_change,
+                    format="%.1f"
+                )
+                with dpg.tooltip("slider_custom_crosshair_thickness", tag="tooltip_custom_crosshair_thickness", show=show_tips):
+                    dpg.add_text("Line thickness for custom crosshair")
+                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_thickness")
+                
+                dpg.add_combo(
+                    items=["Sus", "Plus", "X", "Circle", "Dot"],
+                    default_value=Active_Config.get("custom_crosshair_shape", "Sus"),
+                    label="Shape",
+                    tag="combo_custom_crosshair_shape",
+                    callback=on_custom_crosshair_shape_change
+                )
+                with dpg.tooltip("combo_custom_crosshair_shape", tag="tooltip_custom_crosshair_shape", show=show_tips):
+                    dpg.add_text("Crosshair shape preset")
+                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_shape")
+            
+            # =========== CROSSHAIR COLORS SUBTAB ===========
+            with dpg.tab(label="Crosshair Colors"):
+                dpg.add_text("Crosshair Colors", color=(255, 255, 255))
+                dpg.add_separator()
+                
+                # Color picker for crosshair color
+                dpg.add_color_edit(
+                    label="Color",
+                    default_value=get_color_for_picker("custom_crosshair_color", (255, 255, 255)),
+                    tag="color_custom_crosshair_color",
+                    callback=on_custom_crosshair_color_change,
+                    no_inputs=False,
+                    no_label=False,
+                    alpha_bar=False
+                )
+                with dpg.tooltip("color_custom_crosshair_color", tag="tooltip_custom_crosshair_color", show=show_tips):
+                    dpg.add_text("Color for custom crosshair")
+                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_color")
             
             # =========== RADAR SUBTAB ===========
             with dpg.tab(label="Radar"):
@@ -7176,6 +9143,16 @@ def create_esp_tab():
                 with dpg.tooltip("chk_radar_enabled", tag="tooltip_radar_enabled", show=show_tips):
                     dpg.add_text("Show minimap radar overlay")
                 ALL_TOOLTIP_TAGS.append("tooltip_radar_enabled")
+                
+                dpg.add_checkbox(
+                    label="Overlap Game Radar (Lock Settings)",
+                    default_value=Active_Config.get("radar_overlap_game", False),
+                    tag="chk_radar_overlap_game",
+                    callback=on_radar_overlap_game_toggle
+                )
+                with dpg.tooltip("chk_radar_overlap_game", tag="tooltip_radar_overlap_game", show=show_tips):
+                    dpg.add_text("CS2 RADAR SETTINS REQUIRED:\n-CENTER PLAYER = YES\n-RADAR ROTATING = YES\n-RADAR HUD SIZE = 1.0\n-RADAR MAP ZOM = 0.7\n-FORCE SQUARE SHAPE = NO\n-RADAR ZOOMING DYNAMICALLY  = NO")
+                ALL_TOOLTIP_TAGS.append("tooltip_radar_overlap_game")
                 
                 dpg.add_separator()
                 
@@ -7216,16 +9193,42 @@ def create_esp_tab():
                     dpg.add_text("Background transparency (higher = more visible)")
                 ALL_TOOLTIP_TAGS.append("tooltip_radar_opacity")
                 
-                dpg.add_combo(
-                    items=["Top Right", "Top Left", "Bottom Right", "Bottom Left", "Bottom Middle", "Center Right", "Center Left"],
-                    default_value=Active_Config.get("radar_position", "Top Right"),
-                    label="Position",
-                    tag="combo_radar_position",
-                    callback=on_radar_position_change
+                dpg.add_slider_int(
+                    label="X Offset",
+                    default_value=Active_Config.get("radar_x", 0),
+                    min_value=-860,  # Keep radar fully visible on 1920x1080
+                    max_value=860,
+                    tag="slider_radar_x",
+                    callback=on_radar_x_change
                 )
-                with dpg.tooltip("combo_radar_position", tag="tooltip_radar_position", show=show_tips):
-                    dpg.add_text("Radar position on screen")
-                ALL_TOOLTIP_TAGS.append("tooltip_radar_position")
+                with dpg.tooltip("slider_radar_x", tag="tooltip_radar_x", show=show_tips):
+                    dpg.add_text("X offset from screen center (negative = left, positive = right). Range keeps radar fully visible.")
+                ALL_TOOLTIP_TAGS.append("tooltip_radar_x")
+                
+                dpg.add_slider_int(
+                    label="Y Offset",
+                    default_value=Active_Config.get("radar_y", 0),
+                    min_value=-440,  # Keep radar fully visible on 1920x1080
+                    max_value=440,
+                    tag="slider_radar_y",
+                    callback=on_radar_y_change
+                )
+                with dpg.tooltip("slider_radar_y", tag="tooltip_radar_y", show=show_tips):
+                    dpg.add_text("Y offset from screen center (negative = up, positive = down). Range keeps radar fully visible.")
+                ALL_TOOLTIP_TAGS.append("tooltip_radar_y")
+            
+            # =========== PREVIEW SUBTAB ===========
+            with dpg.tab(label="Preview"):
+                dpg.add_text("ESP Preview", color=(255, 255, 255))
+                dpg.add_separator()
+                
+                # Create a drawing canvas for ESP preview
+                with dpg.drawlist(width=400, height=300, tag="esp_preview_canvas"):
+                    # Background
+                    dpg.draw_rectangle((0, 0), (400, 300), color=(20, 20, 20), fill=True)
+                    
+                    # Draw initial preview
+                    update_esp_preview()
 
 
 def get_color_for_picker(key, default):
@@ -7295,7 +9298,7 @@ def create_aimbot_tab():
                     dpg.add_text("Require holding aimbot key to activate")
                 ALL_TOOLTIP_TAGS.append("tooltip_aimbot_require_key")
                 
-                dpg.add_spacer(height=5)
+                dpg.add_spacer(height=UI_SPACING_SMALL)
                 dpg.add_text("Targeting", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7336,6 +9339,19 @@ def create_aimbot_tab():
                     dpg.add_text("Body part to aim at")
                 ALL_TOOLTIP_TAGS.append("tooltip_aimbot_target_bone")
                 
+                # Movement type dropdown
+                dpg.add_combo(
+                    items=["Dynamic", "Linear"],
+                    default_value=Active_Config.get("aimbot_movement_type", "Dynamic"),
+                    label="Movement Type",
+                    tag="combo_aimbot_movement_type",
+                    callback=on_aimbot_movement_type_change
+                )
+                with dpg.tooltip("combo_aimbot_movement_type", tag="tooltip_aimbot_movement_type", show=show_tips):
+                    dpg.add_text("Dynamic: Speed based on distance (fast far, slow close)")
+                    dpg.add_text("Linear: Constant speed regardless of distance")
+                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_movement_type")
+                
                 # Aimbot smoothness
                 dpg.add_slider_float(
                     label="Smoothness",
@@ -7350,7 +9366,7 @@ def create_aimbot_tab():
                     dpg.add_text("Higher = smoother aim movement")
                 ALL_TOOLTIP_TAGS.append("tooltip_aimbot_smoothness")
                 
-                dpg.add_spacer(height=5)
+                dpg.add_spacer(height=UI_SPACING_SMALL)
                 dpg.add_text("Visuals", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7401,6 +9417,17 @@ def create_aimbot_tab():
                 with dpg.tooltip("slider_aimbot_deadzone_radius", tag="tooltip_aimbot_deadzone_radius", show=show_tips):
                     dpg.add_text("Deadzone radius (must be smaller than FOV radius)")
                 ALL_TOOLTIP_TAGS.append("tooltip_aimbot_deadzone_radius")
+                
+                # Aimbot snaplines toggle
+                dpg.add_checkbox(
+                    label="Aimbot Snaplines",
+                    default_value=Active_Config.get("aimbot_snaplines", False),
+                    callback=on_aimbot_snaplines_toggle,
+                    tag="chk_aimbot_snaplines"
+                )
+                with dpg.tooltip("chk_aimbot_snaplines", tag="tooltip_aimbot_snaplines", show=show_tips):
+                    dpg.add_text("Draw lines from center of screen to aimbot targets")
+                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_snaplines")
             
             # Triggerbot sub-tab
             with dpg.tab(label="Triggerbot"):
@@ -7418,7 +9445,7 @@ def create_aimbot_tab():
                     dpg.add_text("Auto-fire when crosshair is on enemy")
                 ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_enabled")
                 
-                dpg.add_spacer(height=5)
+                dpg.add_spacer(height=UI_SPACING_SMALL)
                 dpg.add_text("Timing", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7448,7 +9475,7 @@ def create_aimbot_tab():
                     dpg.add_text("Delay between consecutive shots")
                 ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_between_shots_delay")
                 
-                dpg.add_spacer(height=5)
+                dpg.add_spacer(height=UI_SPACING_SMALL)
                 dpg.add_text("Burst Mode", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7479,7 +9506,7 @@ def create_aimbot_tab():
                     dpg.add_text("Number of shots per burst")
                 ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_burst_shots")
                 
-                dpg.add_spacer(height=5)
+                dpg.add_spacer(height=UI_SPACING_SMALL)
                 dpg.add_text("Targeting", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7501,7 +9528,7 @@ def create_aimbot_tab():
                 
                 # Enable ACS
                 dpg.add_checkbox(
-                    label="Enable ACS",
+                    label="Enable ACP",
                     default_value=Active_Config.get("acs_enabled", False),
                     callback=on_acs_toggle,
                     tag="chk_acs_enabled"
@@ -7510,7 +9537,7 @@ def create_aimbot_tab():
                     dpg.add_text("Auto vertical crosshair adjustment when key held")
                 ALL_TOOLTIP_TAGS.append("tooltip_acs_enabled")
                 
-                dpg.add_spacer(height=5)
+                dpg.add_spacer(height=UI_SPACING_SMALL)
                 dpg.add_text("Targeting", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7552,7 +9579,7 @@ def create_aimbot_tab():
                     dpg.add_text("Pixels around target where no adjustment occurs")
                 ALL_TOOLTIP_TAGS.append("tooltip_acs_deadzone")
                 
-                dpg.add_spacer(height=5)
+                dpg.add_spacer(height=UI_SPACING_SMALL)
                 dpg.add_text("Visuals", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7580,38 +9607,10 @@ def create_aimbot_tab():
                 with dpg.tooltip("chk_acs_always_show_deadzone_lines", tag="tooltip_acs_always_show_deadzone_lines", show=always_show_tips):
                     dpg.add_text("Show lines without holding ACS key")
                 ALL_TOOLTIP_TAGS.append("tooltip_acs_always_show_deadzone_lines")
-                
-                # Line width slider (only visible when draw lines is enabled)
-                dpg.add_slider_int(
-                    label="Line Width",
-                    default_value=Active_Config.get("acs_line_width", 2),
-                    min_value=1,
-                    max_value=10,
-                    tag="slider_acs_line_width",
-                    callback=on_acs_line_width_change,
-                    show=draw_lines_enabled
-                )
-                with dpg.tooltip("slider_acs_line_width", tag="tooltip_acs_line_width", show=always_show_tips):
-                    dpg.add_text("Width of deadzone visualization lines")
-                ALL_TOOLTIP_TAGS.append("tooltip_acs_line_width")
-                
-                # Line transparency slider (only visible when draw lines is enabled)
-                dpg.add_slider_int(
-                    label="Line Transparency",
-                    default_value=Active_Config.get("acs_line_transparency", 80),
-                    min_value=10,
-                    max_value=255,
-                    tag="slider_acs_line_transparency",
-                    callback=on_acs_line_transparency_change,
-                    show=draw_lines_enabled
-                )
-                with dpg.tooltip("slider_acs_line_transparency", tag="tooltip_acs_line_transparency", show=always_show_tips):
-                    dpg.add_text("Transparency of deadzone lines (higher = more visible)")
-                ALL_TOOLTIP_TAGS.append("tooltip_acs_line_transparency")
             
             # Recoil Control sub-tab
             with dpg.tab(label="Recoil Control"):
-                dpg.add_text("Recoil Control System (RCS)", color=(255, 255, 255))
+                dpg.add_text("Recoil Control", color=(255, 255, 255))
                 dpg.add_separator()
                 
                 # Enable RCS
@@ -7626,10 +9625,6 @@ def create_aimbot_tab():
                     dpg.add_text("Automatically compensates for weapon recoil")
                     dpg.add_text("Adjusts view angles based on aim punch")
                 ALL_TOOLTIP_TAGS.append("tooltip_rcs")
-                
-                dpg.add_spacer(height=5)
-                dpg.add_text("Compensation Strength", color=(255, 255, 255))
-                dpg.add_separator()
                 
                 # RCS horizontal strength slider
                 dpg.add_slider_int(
@@ -7659,10 +9654,6 @@ def create_aimbot_tab():
                     dpg.add_text("100% = Full compensation, 0% = None")
                 ALL_TOOLTIP_TAGS.append("tooltip_rcs_strength_y")
                 
-                dpg.add_spacer(height=5)
-                dpg.add_text("Smoothing", color=(255, 255, 255))
-                dpg.add_separator()
-                
                 # RCS smoothness slider
                 dpg.add_slider_int(
                     label="Smoothness",
@@ -7677,10 +9668,6 @@ def create_aimbot_tab():
                     dpg.add_text("1 = Instant, 10 = Very Smooth")
                 ALL_TOOLTIP_TAGS.append("tooltip_rcs_smoothness")
                 
-                dpg.add_spacer(height=5)
-                dpg.add_text("Fine Tuning", color=(255, 255, 255))
-                dpg.add_separator()
-                
                 # RCS multiplier slider
                 dpg.add_slider_float(
                     label="Multiplier",
@@ -7692,16 +9679,31 @@ def create_aimbot_tab():
                     callback=on_rcs_multiplier_change
                 )
                 with dpg.tooltip("slider_rcs_multiplier", tag="tooltip_rcs_multiplier", show=show_tips):
-                    dpg.add_text("Fine-tune recoil compensation accuracy")
                     dpg.add_text("Increase if crosshair drifts up, decrease if down")
                     dpg.add_text("Default: 2.0")
                 ALL_TOOLTIP_TAGS.append("tooltip_rcs_multiplier")
+                
+                # RCS continuous fire only toggle
+                rcs_continuous_only = Active_Config.get("rcs_continuous_only", False)
+                dpg.add_checkbox(
+                    label="Continuous Fire Only",
+                    default_value=rcs_continuous_only,
+                    tag="chk_rcs_continuous_only",
+                    callback=on_rcs_continuous_only_toggle
+                )
+                with dpg.tooltip("chk_rcs_continuous_only", tag="tooltip_rcs_continuous_only", show=show_tips):
+                    dpg.add_text("Only compensate recoil during continuous fire")
+                    dpg.add_text("Activates after 2+ shots in 300ms window")
+                    dpg.add_text("Ignores isolated single shots")
+                ALL_TOOLTIP_TAGS.append("tooltip_rcs_continuous_only")
 
 
 def create_colors_tab():
     """
     Create the Appearance tab content.
     """
+    show_tips = Active_Config.get("show_tooltips", True)
+    
     with dpg.tab(label="Appearance"):
         # Nested tab bar for color sub-categories
         with dpg.tab_bar():
@@ -7728,7 +9730,7 @@ def create_colors_tab():
                     tag="color_team_box"
                 )
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
                 dpg.add_text("Snapline Colors", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7750,7 +9752,7 @@ def create_colors_tab():
                     tag="color_team_snapline"
                 )
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
                 dpg.add_text("Skeleton Colors", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7772,7 +9774,7 @@ def create_colors_tab():
                     tag="color_team_skeleton"
                 )
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
                 dpg.add_text("Head Dot Colors", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7794,7 +9796,7 @@ def create_colors_tab():
                     tag="color_team_head_dot"
                 )
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
                 dpg.add_text("Spotted Status Colors", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7815,6 +9817,19 @@ def create_colors_tab():
                     callback=on_not_spotted_color_change,
                     tag="color_not_spotted"
                 )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Footstep ESP Colors", color=(255, 255, 255))
+                dpg.add_separator()
+                
+                # Footstep ESP Color
+                dpg.add_color_edit(
+                    label="Footstep ESP",
+                    default_value=get_color_for_picker("footstep_esp_color", (255, 165, 0)),
+                    no_alpha=True,
+                    callback=on_footstep_esp_color_change,
+                    tag="color_footstep_esp"
+                )
             
             # Menu Colors sub-tab
             with dpg.tab(label="Menu"):
@@ -7834,7 +9849,7 @@ def create_colors_tab():
                     width=200
                 )
                 
-                dpg.add_spacer(height=5)
+                dpg.add_spacer(height=UI_SPACING_SMALL)
                 
                 # Font selection dropdown
                 font_names = list(MENU_FONTS.keys())
@@ -7848,6 +9863,53 @@ def create_colors_tab():
                     tag="combo_font",
                     width=200
                 )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Window Size", color=(255, 255, 255))
+                dpg.add_separator()
+                
+                # Window Width Slider
+                current_width = Active_Config.get("window_width", 600)
+                dpg.add_slider_int(
+                    label="Width",
+                    default_value=current_width,
+                    min_value=400,
+                    max_value=1200,
+                    callback=on_window_width_change,
+                    tag="slider_window_width",
+                    width=200
+                )
+                
+                # Window Height Slider
+                current_height = Active_Config.get("window_height", 400)
+                dpg.add_slider_int(
+                    label="Height",
+                    default_value=current_height,
+                    min_value=300,
+                    max_value=800,
+                    callback=on_window_height_change,
+                    tag="slider_window_height",
+                    width=200
+                )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Window Transparency", color=(255, 255, 255))
+                dpg.add_separator()
+                
+                # Menu Transparency Slider
+                current_transparency = Active_Config.get("menu_transparency", 255)
+                dpg.add_slider_int(
+                    label="Menu Transparency",
+                    default_value=current_transparency,
+                    min_value=50,
+                    max_value=255,
+                    callback=on_menu_transparency_change,
+                    tag="slider_menu_transparency",
+                    width=200
+                )
+                with dpg.tooltip("slider_menu_transparency", tag="tooltip_menu_transparency", show=show_tips):
+                    dpg.add_text("Menu window transparency (50 = very transparent, 255 = opaque)")
+                ALL_TOOLTIP_TAGS.append("tooltip_menu_transparency")
             
             # Radar Colors sub-tab
             with dpg.tab(label="Radar"):
@@ -7881,7 +9943,7 @@ def create_colors_tab():
                     tag="color_radar_crosshair"
                 )
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
                 dpg.add_text("Entity Colors", color=(255, 255, 255))
                 dpg.add_separator()
                 
@@ -7934,6 +9996,106 @@ def create_colors_tab():
                     callback=on_aimbot_deadzone_color_change,
                     tag="color_aimbot_deadzone"
                 )
+                
+                # Aimbot Targeting Radius Color
+                dpg.add_color_edit(
+                    label="Targeting Radius Circle",
+                    default_value=get_color_for_picker("aimbot_targeting_radius_color", (0, 255, 0)),
+                    no_alpha=True,
+                    callback=on_aimbot_targeting_radius_color_change,
+                    tag="color_aimbot_targeting_radius"
+                )
+                
+                # Aimbot Targeting Deadzone Color
+                dpg.add_color_edit(
+                    label="Targeting Deadzone Circle",
+                    default_value=get_color_for_picker("aimbot_targeting_deadzone_color", (0, 0, 255)),
+                    no_alpha=True,
+                    callback=on_aimbot_targeting_deadzone_color_change,
+                    tag="color_aimbot_targeting_deadzone"
+                )
+                
+                # Aimbot Snapline Color
+                dpg.add_color_edit(
+                    label="Aimbot Snaplines",
+                    default_value=get_color_for_picker("aimbot_snapline_color", (255, 255, 255)),
+                    no_alpha=True,
+                    callback=on_aimbot_snapline_color_change,
+                    tag="color_aimbot_snapline"
+                )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Transparency", color=(255, 255, 255))
+                dpg.add_separator()
+                
+                # Aimbot radius transparency
+                dpg.add_slider_int(
+                    label="Radius Transparency",
+                    default_value=Active_Config.get("aimbot_radius_transparency", 180),
+                    min_value=0,
+                    max_value=255,
+                    tag="slider_aimbot_radius_transparency",
+                    callback=on_aimbot_radius_transparency_change
+                )
+                with dpg.tooltip("slider_aimbot_radius_transparency", tag="tooltip_aimbot_radius_transparency", show=show_tips):
+                    dpg.add_text("Transparency of the FOV radius circle (0 = invisible, 255 = solid)")
+                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_radius_transparency")
+                
+                # Aimbot deadzone transparency
+                dpg.add_slider_int(
+                    label="Deadzone Transparency",
+                    default_value=Active_Config.get("aimbot_deadzone_transparency", 180),
+                    min_value=0,
+                    max_value=255,
+                    tag="slider_aimbot_deadzone_transparency",
+                    callback=on_aimbot_deadzone_transparency_change
+                )
+                with dpg.tooltip("slider_aimbot_deadzone_transparency", tag="tooltip_aimbot_deadzone_transparency", show=show_tips):
+                    dpg.add_text("Transparency of the deadzone circle (0 = invisible, 255 = solid)")
+                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_deadzone_transparency")
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Thickness", color=(255, 255, 255))
+                dpg.add_separator()
+                
+                # Aimbot radius thickness
+                dpg.add_slider_float(
+                    label="Radius Thickness",
+                    default_value=Active_Config.get("aimbot_radius_thickness", 2.0),
+                    min_value=0.5,
+                    max_value=10.0,
+                    tag="slider_aimbot_radius_thickness",
+                    callback=on_aimbot_radius_thickness_change
+                )
+                with dpg.tooltip("slider_aimbot_radius_thickness", tag="tooltip_aimbot_radius_thickness", show=show_tips):
+                    dpg.add_text("Thickness of the FOV radius circle outline")
+                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_radius_thickness")
+                
+                # Aimbot deadzone thickness
+                dpg.add_slider_float(
+                    label="Deadzone Thickness",
+                    default_value=Active_Config.get("aimbot_deadzone_thickness", 1.5),
+                    min_value=0.5,
+                    max_value=10.0,
+                    tag="slider_aimbot_deadzone_thickness",
+                    callback=on_aimbot_deadzone_thickness_change
+                )
+                with dpg.tooltip("slider_aimbot_deadzone_thickness", tag="tooltip_aimbot_deadzone_thickness", show=show_tips):
+                    dpg.add_text("Thickness of the deadzone circle outline")
+                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_deadzone_thickness")
+                
+                # Aimbot snapline thickness
+                dpg.add_slider_float(
+                    label="Snapline Thickness",
+                    default_value=Active_Config.get("aimbot_snapline_thickness", 2.0),
+                    min_value=0.5,
+                    max_value=10.0,
+                    tag="slider_aimbot_snapline_thickness",
+                    callback=on_aimbot_snapline_thickness_change
+                )
+                with dpg.tooltip("slider_aimbot_snapline_thickness", tag="tooltip_aimbot_snapline_thickness", show=show_tips):
+                    dpg.add_text("Thickness of the aimbot snapline")
+                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_snapline_thickness")
             
             # ACP Colors sub-tab
             with dpg.tab(label="Auto Crosshair Placement"):
@@ -7948,6 +10110,36 @@ def create_colors_tab():
                     callback=on_acs_line_color_change,
                     tag="color_acs_line"
                 )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Deadzone Line Appearance", color=(255, 255, 255))
+                dpg.add_separator()
+                
+                # Line width slider
+                dpg.add_slider_int(
+                    label="Line Width",
+                    default_value=Active_Config.get("acs_line_width", 2),
+                    min_value=1,
+                    max_value=10,
+                    tag="slider_acs_line_width",
+                    callback=on_acs_line_width_change
+                )
+                with dpg.tooltip("slider_acs_line_width", tag="tooltip_acs_line_width", show=show_tips):
+                    dpg.add_text("Width of deadzone visualization lines")
+                ALL_TOOLTIP_TAGS.append("tooltip_acs_line_width")
+                
+                # Line transparency slider
+                dpg.add_slider_int(
+                    label="Line Transparency",
+                    default_value=Active_Config.get("acs_line_transparency", 80),
+                    min_value=10,
+                    max_value=255,
+                    tag="slider_acs_line_transparency",
+                    callback=on_acs_line_transparency_change
+                )
+                with dpg.tooltip("slider_acs_line_transparency", tag="tooltip_acs_line_transparency", show=show_tips):
+                    dpg.add_text("Transparency of deadzone lines (higher = more visible)")
+                ALL_TOOLTIP_TAGS.append("tooltip_acs_line_transparency")
 
 
 def initialize_color_pickers():
@@ -7969,6 +10161,8 @@ def initialize_color_pickers():
         # Spotted colors
         ("color_spotted", "spotted_color", (0, 255, 0)),
         ("color_not_spotted", "not_spotted_color", (255, 0, 0)),
+        # Footstep ESP color
+        ("color_footstep_esp", "footstep_esp_color", (255, 165, 0)),
         # Radar colors
         ("color_radar_bg", "radar_bg_color", (0, 0, 0)),
         ("color_radar_border", "radar_border_color", (128, 128, 128)),
@@ -7979,6 +10173,9 @@ def initialize_color_pickers():
         # Aimbot colors
         ("color_aimbot_radius", "aimbot_radius_color", (255, 0, 0)),
         ("color_aimbot_deadzone", "aimbot_deadzone_color", (255, 255, 0)),
+        ("color_aimbot_targeting_radius", "aimbot_targeting_radius_color", (0, 255, 0)),
+        ("color_aimbot_targeting_deadzone", "aimbot_targeting_deadzone_color", (0, 0, 255)),
+        ("color_aimbot_snapline", "aimbot_snapline_color", (255, 255, 255)),
     ]
     
     for tag, config_key, default in color_picker_mappings:
@@ -8021,9 +10218,9 @@ def create_config_tab():
             dpg.add_text("List auto-refreshes every 2 seconds")
         ALL_TOOLTIP_TAGS.append("tooltip_config_select")
         
-        dpg.add_spacer(height=15)
+        dpg.add_spacer(height=UI_SPACING_LARGE)
         dpg.add_separator()
-        dpg.add_spacer(height=10)
+        dpg.add_spacer(height=UI_SPACING_MEDIUM)
         
         # Save config section
         dpg.add_text("Save Config:", color=(200, 200, 200))
@@ -8037,7 +10234,7 @@ def create_config_tab():
             dpg.add_text("Saved to configs/Settings/")
         ALL_TOOLTIP_TAGS.append("tooltip_config_name_input")
         
-        dpg.add_spacer(height=5)
+        dpg.add_spacer(height=UI_SPACING_SMALL)
         dpg.add_button(
             label="Save Current Settings",
             callback=lambda: on_save_config_clicked(),
@@ -8048,9 +10245,9 @@ def create_config_tab():
             dpg.add_text("Save all current settings to a new config file")
         ALL_TOOLTIP_TAGS.append("tooltip_save_config")
         
-        dpg.add_spacer(height=15)
+        dpg.add_spacer(height=UI_SPACING_LARGE)
         dpg.add_separator()
-        dpg.add_spacer(height=10)
+        dpg.add_spacer(height=UI_SPACING_MEDIUM)
         
         # Reset to default section
         dpg.add_button(
@@ -8090,25 +10287,9 @@ def create_debug_tab():
                     dpg.add_button(label="Copy Output", callback=lambda: copy_debug_output())
                     dpg.add_checkbox(label="Auto-scroll", default_value=True, tag="debug_autoscroll")
             
-            # Offsets sub-tab (password protected)
+            # Offsets sub-tab
             with dpg.tab(label="Offsets"):
-                # Password entry group (shown when locked)
-                with dpg.group(tag="offsets_password_group", show=True):
-                    dpg.add_text("Enter password to unlock offsets", color=(255, 200, 100))
-                    dpg.add_separator()
-                    dpg.add_input_text(
-                        label="Password",
-                        password=True,
-                        tag="offsets_password_input",
-                        on_enter=True,
-                        callback=on_offsets_password_enter
-                    )
-                    dpg.add_button(label="Unlock", callback=on_offsets_password_enter)
-                    dpg.add_text("", tag="offsets_password_error", color=(255, 0, 0))
-                
-                # Actual content (hidden until unlocked)
-                with dpg.child_window(border=False, tag="offsets_content_window", show=False):
-                    create_offsets_content()
+                create_offsets_content()
 
 
 def clear_debug_terminal():
@@ -8119,24 +10300,6 @@ def clear_debug_terminal():
         dpg.set_value("debug_terminal_text", "Terminal cleared.")
     except:
         pass
-
-
-def on_offsets_password_enter(sender=None, value=None):
-    """Handle password entry for offsets tab."""
-    global offsets_tab_unlocked
-    
-    password = dpg.get_value("offsets_password_input")
-    
-    if password == "israel":
-        offsets_tab_unlocked = True
-        # Hide password group, show content
-        dpg.configure_item("offsets_password_group", show=False)
-        dpg.configure_item("offsets_content_window", show=True)
-        dpg.set_value("offsets_password_error", "")
-        debug_log("Offsets tab unlocked", "SUCCESS")
-    else:
-        dpg.set_value("offsets_password_error", "Incorrect password")
-        dpg.set_value("offsets_password_input", "")
 
 
 def dump_debug_output():
@@ -8252,7 +10415,7 @@ def create_offsets_content():
         for key, value in offsets.get('client.dll', {}).items():
             dpg.add_text(f"{key}: 0x{value:X}" if isinstance(value, int) else f"{key}: {value}")
         
-        dpg.add_spacer(height=10)
+        dpg.add_spacer(height=UI_SPACING_MEDIUM)
         
         # Display client_dll class offsets
         dpg.add_text("=== Client DLL Classes ===", color=(255, 255, 255))
@@ -8363,17 +10526,33 @@ def create_settings_tab_cheat():
                 
                 dpg.add_separator()
                 
-                # Auto Accept toggle (disabled - feature not available)
+                # Hitsound toggle
+                hitsound_enabled = Active_Config.get("hitsound_enabled", False)
                 dpg.add_checkbox(
-                    label="Auto Accept Match",
-                    default_value=False,
-                    tag="chk_auto_accept_enabled",
-                    callback=on_auto_accept_toggle,
-                    enabled=False
+                    label="Hitsound",
+                    default_value=hitsound_enabled,
+                    tag="chk_hitsound_enabled",
+                    callback=on_hitsound_toggle
                 )
-                with dpg.tooltip("chk_auto_accept_enabled", tag="tooltip_auto_accept", show=show_tips):
-                    dpg.add_text("Feature disabled")
-                ALL_TOOLTIP_TAGS.append("tooltip_auto_accept")
+                with dpg.tooltip("chk_hitsound_enabled", tag="tooltip_hitsound", show=show_tips):
+                    dpg.add_text("Play sound when hitting enemies")
+                    dpg.add_text("Select sound type from dropdown below")
+                ALL_TOOLTIP_TAGS.append("tooltip_hitsound")
+                
+                # Hitsound selection dropdown (visibility controlled by toggle)
+                dpg.add_combo(
+                    items=["hitmarker", "criticalhit", "metalhit"],
+                    default_value=Active_Config.get("hitsound_type", "hitmarker"),
+                    label="Hitsound Type",
+                    tag="combo_hitsound_type",
+                    callback=on_hitsound_type_change,
+                    show=hitsound_enabled
+                )
+                hitsound_combo_show = show_tips and hitsound_enabled
+                with dpg.tooltip("combo_hitsound_type", tag="tooltip_hitsound_type", show=hitsound_combo_show):
+                    dpg.add_text("Select which hitsound to play")
+                    dpg.add_text("Files are downloaded automatically")
+                ALL_TOOLTIP_TAGS.append("tooltip_hitsound_type")
             
             # General settings sub-tab
             with dpg.tab(label="General"):
@@ -8431,6 +10610,19 @@ def create_settings_tab_cheat():
                 with dpg.tooltip("chk_hide_on_tabout", tag="tooltip_hide_on_tabout", show=show_tips):
                     dpg.add_text("Automatically hide overlay and menu when not focused on CS2")
                 ALL_TOOLTIP_TAGS.append("tooltip_hide_on_tabout")
+                
+                dpg.add_separator()
+                
+                # Show status labels toggle
+                dpg.add_checkbox(
+                    label="Show Status Labels",
+                    default_value=Active_Config.get("show_status_labels", True),
+                    tag="chk_show_status_labels",
+                    callback=on_show_status_labels_toggle
+                )
+                with dpg.tooltip("chk_show_status_labels", tag="tooltip_show_status_labels", show=show_tips):
+                    dpg.add_text("Show feature status labels in the overlay")
+                ALL_TOOLTIP_TAGS.append("tooltip_show_status_labels")
             
             # Keybinds sub-tab
             with dpg.tab(label="Keybinds"):
@@ -8447,10 +10639,10 @@ def create_settings_tab_cheat():
                         width=150
                     )
                 with dpg.tooltip("btn_bind_menu_toggle_cheat", tag="tooltip_menu_toggle_key", show=show_tips):
-                    dpg.add_text("Key to show/hide the cheat menu")
+                    dpg.add_text("Key or mouse button to show/hide the cheat menu")
                 ALL_TOOLTIP_TAGS.append("tooltip_menu_toggle_key")
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=2)
                 
                 # ESP toggle key button
                 with dpg.group(horizontal=True):
@@ -8462,10 +10654,10 @@ def create_settings_tab_cheat():
                         width=150
                     )
                 with dpg.tooltip("btn_bind_esp_toggle_cheat", tag="tooltip_esp_toggle_key", show=show_tips):
-                    dpg.add_text("Key to enable/disable ESP overlay")
+                    dpg.add_text("Key or mouse button to enable/disable ESP overlay")
                 ALL_TOOLTIP_TAGS.append("tooltip_esp_toggle_key")
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=2)
                 
                 # Exit key button
                 with dpg.group(horizontal=True):
@@ -8477,25 +10669,25 @@ def create_settings_tab_cheat():
                         width=150
                     )
                 with dpg.tooltip("btn_bind_exit_cheat", tag="tooltip_exit_key", show=show_tips):
-                    dpg.add_text("Key to close the cheat")
+                    dpg.add_text("Key or mouse button to close the cheat")
                 ALL_TOOLTIP_TAGS.append("tooltip_exit_key")
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=2)
                 
                 # Aimbot key button
                 with dpg.group(horizontal=True):
                     dpg.add_text("Aimbot Key:")
                     dpg.add_button(
-                        label=f"{Keybinds_Config.get('aimbot_key', 'lalt').upper()}",
+                        label=f"{Keybinds_Config.get('aimbot_key', 'alt').upper()}",
                         tag="btn_bind_aimbot_cheat",
                         callback=on_aimbot_key_button,
                         width=150
                     )
                 with dpg.tooltip("btn_bind_aimbot_cheat", tag="tooltip_aimbot_key", show=show_tips):
-                    dpg.add_text("Hold this key to activate aimbot")
+                    dpg.add_text("Hold this key or mouse button to activate aimbot")
                 ALL_TOOLTIP_TAGS.append("tooltip_aimbot_key")
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=2)
                 
                 # Triggerbot key button
                 with dpg.group(horizontal=True):
@@ -8507,14 +10699,14 @@ def create_settings_tab_cheat():
                         width=150
                     )
                 with dpg.tooltip("btn_bind_triggerbot_cheat", tag="tooltip_triggerbot_key", show=show_tips):
-                    dpg.add_text("Hold this key to activate triggerbot")
+                    dpg.add_text("Hold this key or mouse button to activate triggerbot")
                 ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_key")
                 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=2)
                 
                 # ACS key button
                 with dpg.group(horizontal=True):
-                    dpg.add_text("ACS Key:")
+                    dpg.add_text("ACP Key:")
                     dpg.add_button(
                         label=f"{Keybinds_Config.get('acs_key', 'v').upper()}",
                         tag="btn_bind_acs_cheat",
@@ -8522,8 +10714,53 @@ def create_settings_tab_cheat():
                         width=150
                     )
                 with dpg.tooltip("btn_bind_acs_cheat", tag="tooltip_acs_key", show=show_tips):
-                    dpg.add_text("Hold this key to activate auto crosshair placement")
+                    dpg.add_text("Hold this key or mouse button to activate auto crosshair placement")
                 ALL_TOOLTIP_TAGS.append("tooltip_acs_key")
+                
+                dpg.add_spacer(height=2)
+                
+                # Aimbot toggle key button
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Aimbot Toggle Key:")
+                    dpg.add_button(
+                        label=f"{Keybinds_Config.get('aimbot_toggle_key', '').upper() or 'NONE'}",
+                        tag="btn_bind_aimbot_toggle_cheat",
+                        callback=on_aimbot_toggle_key_button,
+                        width=150
+                    )
+                with dpg.tooltip("btn_bind_aimbot_toggle_cheat", tag="tooltip_aimbot_toggle_key", show=show_tips):
+                    dpg.add_text("Key or mouse button to toggle aimbot on/off")
+                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_toggle_key")
+                
+                dpg.add_spacer(height=2)
+                
+                # Head-only mode toggle key button
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Head-Only Toggle Key:")
+                    dpg.add_button(
+                        label=f"{Keybinds_Config.get('head_only_toggle_key', '').upper() or 'NONE'}",
+                        tag="btn_bind_head_only_toggle_cheat",
+                        callback=on_head_only_toggle_key_button,
+                        width=150
+                    )
+                with dpg.tooltip("btn_bind_head_only_toggle_cheat", tag="tooltip_head_only_toggle_key", show=show_tips):
+                    dpg.add_text("Key or mouse button to toggle head-only mode for triggerbot")
+                ALL_TOOLTIP_TAGS.append("tooltip_head_only_toggle_key")
+                
+                dpg.add_spacer(height=2)
+                
+                # RCS toggle key button
+                with dpg.group(horizontal=True):
+                    dpg.add_text("RCS Toggle Key:")
+                    dpg.add_button(
+                        label=f"{Keybinds_Config.get('rcs_toggle_key', '').upper() or 'NONE'}",
+                        tag="btn_bind_rcs_toggle_cheat",
+                        callback=on_rcs_toggle_key_button,
+                        width=150
+                    )
+                with dpg.tooltip("btn_bind_rcs_toggle_cheat", tag="tooltip_rcs_toggle_key", show=show_tips):
+                    dpg.add_text("Key or mouse button to toggle RCS on/off")
+                ALL_TOOLTIP_TAGS.append("tooltip_rcs_toggle_key")
 
 
 def create_main_window(title, window_type="loader"):
@@ -8554,6 +10791,7 @@ def create_main_window(title, window_type="loader"):
             else:
                 # Cheat window has ESP controls, offsets display, and settings
                 create_esp_tab()
+                update_esp_preview()  # Initialize ESP preview
                 create_aimbot_tab()
                 create_settings_tab_cheat()
                 create_colors_tab()
@@ -8577,8 +10815,8 @@ def setup_viewport(title, window_type="loader"):
     # Create viewport (the actual OS window)
     dpg.create_viewport(
         title=title, 
-        width=WINDOW_WIDTH, 
-        height=WINDOW_HEIGHT, 
+        width=Active_Config.get("window_width", WINDOW_WIDTH), 
+        height=Active_Config.get("window_height", WINDOW_HEIGHT), 
         decorated=False  # No OS title bar/borders
     )
     
@@ -8599,18 +10837,31 @@ def setup_viewport(title, window_type="loader"):
         screen_height = user32.GetSystemMetrics(1)
         
         # Calculate center position
-        center_x = (screen_width - WINDOW_WIDTH) // 2
-        center_y = (screen_height - WINDOW_HEIGHT) // 2
+        current_width = Active_Config.get("window_width", WINDOW_WIDTH)
+        current_height = Active_Config.get("window_height", WINDOW_HEIGHT)
+        center_x = (screen_width - current_width) // 2
+        center_y = (screen_height - current_height) // 2
         
         # Set viewport position
         dpg.set_viewport_pos([center_x, center_y])
     else:
         # Position cheat window at center of CS2 window
+        user32 = ctypes.windll.user32
+        screen_width = user32.GetSystemMetrics(0)
+        screen_height = user32.GetSystemMetrics(1)
+        
         cs2_x, cs2_y, cs2_width, cs2_height = get_cs2_window_rect()
         if cs2_x is not None and cs2_width is not None:
             # Calculate center of CS2 window
-            center_x = cs2_x + (cs2_width - WINDOW_WIDTH) // 2
-            center_y = cs2_y + (cs2_height - WINDOW_HEIGHT) // 2
+            current_width = Active_Config.get("window_width", WINDOW_WIDTH)
+            current_height = Active_Config.get("window_height", WINDOW_HEIGHT)
+            center_x = cs2_x + (cs2_width - current_width) // 2
+            center_y = cs2_y + (cs2_height - current_height) // 2
+            
+            # Clamp to screen bounds to prevent window from going off-screen
+            center_x = max(0, min(center_x, screen_width - current_width))
+            center_y = max(0, min(center_y, screen_height - current_height))
+            
             dpg.set_viewport_pos([center_x, center_y])
         elif app_state["last_window_pos"]:
             # Fallback to loader's saved position if CS2 rect not available
@@ -8643,6 +10894,11 @@ def apply_window_styles(title):
         # Enable Windows 11 rounded corners if checkbox is enabled
         if loader_settings.get("RoundedCorners", True):
             enable_rounded_corners(hwnd)
+        
+        # Apply menu transparency for cheat window
+        if "cheat" in title.lower():
+            transparency = Active_Config.get("menu_transparency", 255)
+            apply_menu_transparency(transparency)
 
 
 # =============================================================================
@@ -8723,11 +10979,11 @@ def run_window(window_type="loader"):
         start_esp_overlay()
         start_aimbot_thread()
         start_triggerbot_thread()
-        start_auto_accept_thread()
         start_anti_flash_thread()
         start_fov_changer_thread()
         start_rcs_thread()
         start_acs_thread()
+        start_hitsound_thread()
         # Apply saved colorway theme
         colorway = Active_Config.get("menu_colorway", "Default")
         apply_colorway(colorway)
@@ -8745,6 +11001,9 @@ def run_window(window_type="loader"):
     # State trackers for other hotkeys (to prevent immediate triggering after binding)
     run_window.esp_key_was_pressed = False
     run_window.exit_key_was_pressed = False
+    run_window.aimbot_toggle_key_was_pressed = False
+    run_window.head_only_toggle_key_was_pressed = False
+    run_window.rcs_toggle_key_was_pressed = False
     
     # =============================================================================
     # MAIN RENDER LOOP
@@ -8894,6 +11153,24 @@ def run_window(window_type="loader"):
                                 dpg.set_item_label("btn_bind_acs_cheat", "NONE")
                             except:
                                 pass
+                        elif keybind_listener["target"] == "aimbot_toggle_key":
+                            Keybinds_Config["aimbot_toggle_key"] = "none"
+                            try:
+                                dpg.set_item_label("btn_bind_aimbot_toggle_cheat", "NONE")
+                            except:
+                                pass
+                        elif keybind_listener["target"] == "head_only_toggle_key":
+                            Keybinds_Config["head_only_toggle_key"] = "none"
+                            try:
+                                dpg.set_item_label("btn_bind_head_only_toggle_cheat", "NONE")
+                            except:
+                                pass
+                        elif keybind_listener["target"] == "rcs_toggle_key":
+                            Keybinds_Config["rcs_toggle_key"] = "none"
+                            try:
+                                dpg.set_item_label("btn_bind_rcs_toggle_cheat", "NONE")
+                            except:
+                                pass
                     else:
                         # Normal key binding
                         if keybind_listener["target"] == "menu_toggle_key":
@@ -8932,6 +11209,24 @@ def run_window(window_type="loader"):
                                 dpg.set_item_label("btn_bind_acs_cheat", key_name.upper())
                             except:
                                 pass
+                        elif keybind_listener["target"] == "aimbot_toggle_key":
+                            Keybinds_Config["aimbot_toggle_key"] = key_name
+                            try:
+                                dpg.set_item_label("btn_bind_aimbot_toggle_cheat", key_name.upper())
+                            except:
+                                pass
+                        elif keybind_listener["target"] == "head_only_toggle_key":
+                            Keybinds_Config["head_only_toggle_key"] = key_name
+                            try:
+                                dpg.set_item_label("btn_bind_head_only_toggle_cheat", key_name.upper())
+                            except:
+                                pass
+                        elif keybind_listener["target"] == "rcs_toggle_key":
+                            Keybinds_Config["rcs_toggle_key"] = key_name
+                            try:
+                                dpg.set_item_label("btn_bind_rcs_toggle_cheat", key_name.upper())
+                            except:
+                                pass
                     
                     # Save keybinds after change
                     save_keybinds()
@@ -8942,6 +11237,9 @@ def run_window(window_type="loader"):
                     key_was_pressed = True
                     run_window.esp_key_was_pressed = True
                     run_window.exit_key_was_pressed = True
+                    run_window.aimbot_toggle_key_was_pressed = True
+                    run_window.head_only_toggle_key_was_pressed = True
+                    run_window.rcs_toggle_key_was_pressed = True
                     break
         
         # Handle menu toggle key for cheat window visibility
@@ -8986,6 +11284,86 @@ def run_window(window_type="loader"):
                         pass
                     debug_log(f"ESP toggled: {'ON' if new_esp_state else 'OFF'}", "INFO")
                 run_window.esp_key_was_pressed = esp_key_pressed
+        
+        # Handle aimbot toggle key
+        if window_type == "cheat" and not keybind_listener["listening"]:
+            aimbot_toggle_key = Keybinds_Config.get("aimbot_toggle_key", "").lower()
+            
+            # Skip if keybind is set to "none" or empty
+            if aimbot_toggle_key and aimbot_toggle_key != "none":
+                aimbot_toggle_vk_code = KEY_NAME_TO_VK.get(aimbot_toggle_key)
+                
+                if aimbot_toggle_vk_code:
+                    aimbot_toggle_key_pressed = win32api.GetAsyncKeyState(aimbot_toggle_vk_code) & 0x8000
+                    if aimbot_toggle_key_pressed and not run_window.aimbot_toggle_key_was_pressed:
+                        # Key just pressed - toggle aimbot
+                        current_aimbot_state = Active_Config.get("aimbot_enabled", False)
+                        new_aimbot_state = not current_aimbot_state
+                        Active_Config["aimbot_enabled"] = new_aimbot_state
+                        if aimbot_state["settings"]:
+                            aimbot_state["settings"]["aimbot_enabled"] = new_aimbot_state
+                        if esp_overlay["settings"]:
+                            esp_overlay["settings"]["aimbot_enabled"] = new_aimbot_state
+                        save_settings()
+                        # Update checkbox in UI
+                        try:
+                            dpg.set_value("chk_aimbot_enabled", new_aimbot_state)
+                        except:
+                            pass
+                        debug_log(f"Aimbot toggled: {'ON' if new_aimbot_state else 'OFF'}", "INFO")
+                    run_window.aimbot_toggle_key_was_pressed = aimbot_toggle_key_pressed
+        
+        # Handle head-only toggle key
+        if window_type == "cheat" and not keybind_listener["listening"]:
+            head_only_toggle_key = Keybinds_Config.get("head_only_toggle_key", "").lower()
+            
+            # Skip if keybind is set to "none" or empty
+            if head_only_toggle_key and head_only_toggle_key != "none":
+                head_only_toggle_vk_code = KEY_NAME_TO_VK.get(head_only_toggle_key)
+                
+                if head_only_toggle_vk_code:
+                    head_only_toggle_key_pressed = win32api.GetAsyncKeyState(head_only_toggle_vk_code) & 0x8000
+                    if head_only_toggle_key_pressed and not run_window.head_only_toggle_key_was_pressed:
+                        # Key just pressed - toggle head-only mode
+                        current_head_only_state = Active_Config.get("triggerbot_head_only", False)
+                        new_head_only_state = not current_head_only_state
+                        Active_Config["triggerbot_head_only"] = new_head_only_state
+                        if triggerbot_state["settings"]:
+                            triggerbot_state["settings"]["triggerbot_head_only"] = new_head_only_state
+                        save_settings()
+                        # Update checkbox in UI
+                        try:
+                            dpg.set_value("chk_triggerbot_head_only", new_head_only_state)
+                        except:
+                            pass
+                        debug_log(f"Triggerbot head-only mode toggled: {'ON' if new_head_only_state else 'OFF'}", "INFO")
+                    run_window.head_only_toggle_key_was_pressed = head_only_toggle_key_pressed
+        
+        # Handle RCS toggle key
+        if window_type == "cheat" and not keybind_listener["listening"]:
+            rcs_toggle_key = Keybinds_Config.get("rcs_toggle_key", "").lower()
+            
+            # Skip if keybind is set to "none" or empty
+            if rcs_toggle_key and rcs_toggle_key != "none":
+                rcs_toggle_vk_code = KEY_NAME_TO_VK.get(rcs_toggle_key)
+                
+                if rcs_toggle_vk_code:
+                    rcs_toggle_key_pressed = win32api.GetAsyncKeyState(rcs_toggle_vk_code) & 0x8000
+                    if rcs_toggle_key_pressed and not run_window.rcs_toggle_key_was_pressed:
+                        # Key just pressed - toggle RCS
+                        current_rcs_state = Active_Config.get("rcs_enabled", False)
+                        new_rcs_state = not current_rcs_state
+                        Active_Config["rcs_enabled"] = new_rcs_state
+                        if rcs_state["settings"]:
+                            rcs_state["settings"]["rcs_enabled"] = new_rcs_state
+                        save_settings()
+                        # Update checkbox in UI
+                        try:
+                            dpg.set_value("chk_rcs_enabled", new_rcs_state)
+                        except:
+                            pass
+                        debug_log(f"RCS toggled: {'ON' if new_rcs_state else 'OFF'}", "INFO")
+                    run_window.rcs_toggle_key_was_pressed = rcs_toggle_key_pressed
         
         # Exit Key handling (works in both loader and cheat windows)
         exit_key_name = Keybinds_Config.get("exit_key", "f7")
@@ -9034,7 +11412,6 @@ def run_window(window_type="loader"):
         stop_esp_overlay()
         stop_aimbot_thread()
         stop_triggerbot_thread()
-        stop_auto_accept_thread()
         stop_anti_flash_thread()
         stop_fov_changer_thread()
         stop_rcs_thread()
@@ -9093,9 +11470,6 @@ def cleanup_temp_folder():
     # Stop triggerbot thread if running
     stop_triggerbot_thread()
     
-    # Stop auto-accept thread if running
-    stop_auto_accept_thread()
-    
     # Stop anti-flash thread if running
     stop_anti_flash_thread()
     
@@ -9136,6 +11510,24 @@ def main():
     - Loader: Configure → Load offsets → Switch to cheat
     - Cheat: ESP running → Menu toggle → Close to exit
     """
+    # Check if temp folder already exists (indicates another instance running)
+    if os.path.exists(TEMP_FOLDER):
+        # Get app title for message box
+        try:
+            app_title = get_app_title()
+        except:
+            app_title = FALLBACK_TITLE
+        
+        # Show topmost message box
+        ctypes.windll.user32.MessageBoxW(
+            0,  # No parent window
+            "Error: Cheat is already running or failed to close at last exit. Either close the cheat or delete the 'temp' folder",
+            f"{app_title} - Error",
+            0x00001000 | 0x00000010 | 0x00040000  # MB_SYSTEMMODAL | MB_ICONERROR | MB_TOPMOST
+        )
+        # Exit the script
+        sys.exit(1)
+    
     # Create temp folder for offset downloads
     try:
         os.makedirs(TEMP_FOLDER, exist_ok=True)
