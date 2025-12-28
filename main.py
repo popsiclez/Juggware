@@ -33,10 +33,10 @@ from OpenGL.GL import *
 
 
 # Skip loader flag - set to True to bypass loader and load cheat directly
-SKIP_LOADER = True
+SKIP_LOADER = False
 
 # Graphics reset flag - set to True to reset graphics before starting cheat
-RESET_GRAPHICS = False
+RESET_GRAPHICS = True
 
 # Delay in seconds before starting cheat after graphics reset
 RESET_GRAPHICS_DELAY = 10
@@ -12372,6 +12372,9 @@ def main():
         # If Test was clicked, run cheat window
         if should_switch:
             debug_log("Switching to cheat window...", "INFO")
+            if RESET_GRAPHICS:
+                pyautogui.hotkey('ctrl', 'shift', 'win', 'b')
+                time.sleep(RESET_GRAPHICS_DELAY)
             run_window("cheat")
 
 
