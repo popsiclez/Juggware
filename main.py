@@ -382,25 +382,45 @@ loaded_fonts = {}
 
 UI_COLORWAYS = {
     "Default": {
-        # ImGui default dark theme colors
+        # Custom purple theme colors
         "window_bg": (15, 15, 15, 255),
         "title_bg": (10, 10, 10, 255),
-        "title_bg_active": (41, 74, 122, 255),
-        "frame_bg": (41, 74, 122, 255),
-        "frame_bg_hovered": (66, 150, 250, 255),
-        "frame_bg_active": (66, 150, 250, 255),
-        "button": (66, 150, 250, 255),
-        "button_hovered": (66, 150, 250, 255),
-        "button_active": (15, 135, 250, 255),
-        "tab": (46, 89, 148, 255),
-        "tab_hovered": (66, 150, 250, 255),
-        "tab_active": (51, 105, 173, 255),
+        "title_bg_active": (74, 41, 122, 255),
+        "frame_bg": (74, 41, 122, 255),
+        "frame_bg_hovered": (150, 66, 250, 255),
+        "frame_bg_active": (150, 66, 250, 255),
+        "button": (150, 66, 250, 255),
+        "button_hovered": (150, 66, 250, 255),
+        "button_active": (135, 15, 250, 255),
+        "tab": (89, 46, 148, 255),
+        "tab_hovered": (150, 66, 250, 255),
+        "tab_active": (105, 51, 173, 255),
         "text": (255, 255, 255, 255),
-        "check_mark": (66, 150, 250, 255),
-        "slider_grab": (66, 150, 250, 255),
-        "header": (66, 150, 250, 255),
-        "header_hovered": (66, 150, 250, 255),
-        "header_active": (66, 150, 250, 255),
+        "check_mark": (150, 66, 250, 255),
+        "slider_grab": (150, 66, 250, 255),
+        "header": (150, 66, 250, 255),
+        "header_hovered": (150, 66, 250, 255),
+        "header_active": (150, 66, 250, 255),
+    },
+        "White": {
+        "window_bg": (255, 255, 255, 255),
+        "title_bg": (240, 240, 240, 255),
+        "title_bg_active": (200, 220, 255, 255),
+        "frame_bg": (200, 200, 200, 255),
+        "frame_bg_hovered": (180, 180, 180, 255),
+        "frame_bg_active": (160, 160, 160, 255),
+        "button": (220, 220, 220, 255),
+        "button_hovered": (180, 180, 180, 255),
+        "button_active": (140, 140, 140, 255),
+        "tab": (230, 230, 230, 255),
+        "tab_hovered": (180, 180, 180, 255),
+        "tab_active": (140, 140, 140, 255),
+        "text": (0, 0, 0, 255),
+        "check_mark": (0, 0, 0, 255),
+        "slider_grab": (100, 100, 100, 255),
+        "header": (200, 200, 200, 255),
+        "header_hovered": (150, 150, 150, 255),
+        "header_active": (100, 100, 100, 255),
     },
     "Light Blue": {
         "window_bg": (35, 45, 55, 255),
@@ -7105,7 +7125,7 @@ def create_titlebar(title, window_type="loader"):
             
             with dpg.table_row():
                 # Title text
-                dpg.add_text(title, color=(255, 255, 255))
+                dpg.add_text(title)
                 
                 # Close button (only for loader window)
                 if window_type == "loader":
@@ -7171,7 +7191,7 @@ def create_settings_tab():
             
             # Bypass password system
             dpg.add_spacer(height=UI_SPACING_SMALL)
-            dpg.add_text("Enter bypass password:", color=(255, 255, 255), tag="txt_bypass_label")
+            dpg.add_text("Enter bypass password:", tag="txt_bypass_label")
             dpg.add_input_text(tag="txt_bypass_password", password=True, width=200, hint="Password")
             dpg.add_button(label="Enter", callback=on_bypass_password_entered, tag="btn_bypass_enter")
             
@@ -9306,7 +9326,7 @@ def create_esp_tab():
             
             # =========== OPTIONS SUBTAB ===========
             with dpg.tab(label="Options"):
-                dpg.add_text("ESP Options", color=(255, 255, 255))
+                dpg.add_text("ESP Options")
                 dpg.add_separator()
                 
                 # Snap lines position - load from Active_Config
@@ -9626,7 +9646,7 @@ def create_esp_tab():
             
             # =========== PREVIEW SUBTAB ===========
             with dpg.tab(label="Preview"):
-                dpg.add_text("ESP Preview", color=(255, 255, 255))
+                dpg.add_text("ESP Preview (Experimental)")
                 dpg.add_separator()
                 
                 # Create a drawing canvas for ESP preview
@@ -9669,7 +9689,7 @@ def create_aimbot_tab():
                 # Get show_tooltips setting
                 show_tips = Active_Config.get("show_tooltips", True)
                 
-                dpg.add_text("Aimbot Settings", color=(255, 255, 255))
+                dpg.add_text("Aimbot Settings")
                 dpg.add_separator()
                 
                 # Enable aimbot
@@ -9706,7 +9726,7 @@ def create_aimbot_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_aimbot_require_key")
                 
                 dpg.add_spacer(height=UI_SPACING_SMALL)
-                dpg.add_text("Targeting", color=(255, 255, 255))
+                dpg.add_text("Targeting")
                 dpg.add_separator()
                 
                 # Spotted check toggle
@@ -9774,7 +9794,7 @@ def create_aimbot_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_aimbot_smoothness")
                 
                 dpg.add_spacer(height=UI_SPACING_SMALL)
-                dpg.add_text("Visuals", color=(255, 255, 255))
+                dpg.add_text("Visuals")
                 dpg.add_separator()
                 
                 # Show radius toggle
@@ -9838,7 +9858,7 @@ def create_aimbot_tab():
             
             # Triggerbot sub-tab
             with dpg.tab(label="Triggerbot"):
-                dpg.add_text("Triggerbot Settings", color=(255, 255, 255))
+                dpg.add_text("Triggerbot Settings")
                 dpg.add_separator()
                 
                 # Enable triggerbot
@@ -9853,7 +9873,7 @@ def create_aimbot_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_enabled")
                 
                 dpg.add_spacer(height=UI_SPACING_SMALL)
-                dpg.add_text("Timing", color=(255, 255, 255))
+                dpg.add_text("Timing")
                 dpg.add_separator()
                 
                 # First shot delay
@@ -9883,7 +9903,7 @@ def create_aimbot_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_between_shots_delay")
                 
                 dpg.add_spacer(height=UI_SPACING_SMALL)
-                dpg.add_text("Burst Mode", color=(255, 255, 255))
+                dpg.add_text("Burst Mode")
                 dpg.add_separator()
                 
                 # Burst mode toggle
@@ -9914,7 +9934,7 @@ def create_aimbot_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_burst_shots")
                 
                 dpg.add_spacer(height=UI_SPACING_SMALL)
-                dpg.add_text("Targeting", color=(255, 255, 255))
+                dpg.add_text("Targeting")
                 dpg.add_separator()
                 
                 # Head-only mode toggle
@@ -9930,7 +9950,7 @@ def create_aimbot_tab():
             
             # ACP (Auto Crosshair Placement) sub-tab
             with dpg.tab(label="Auto Crosshair Placement"):
-                dpg.add_text("Auto Crosshair Placement", color=(255, 255, 255))
+                dpg.add_text("Auto Crosshair Placement")
                 dpg.add_separator()
                 
                 # Enable ACS
@@ -9945,7 +9965,7 @@ def create_aimbot_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_acs_enabled")
                 
                 dpg.add_spacer(height=UI_SPACING_SMALL)
-                dpg.add_text("Targeting", color=(255, 255, 255))
+                dpg.add_text("Targeting")
                 dpg.add_separator()
                 
                 # Target bone dropdown
@@ -9987,7 +10007,7 @@ def create_aimbot_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_acs_deadzone")
                 
                 dpg.add_spacer(height=UI_SPACING_SMALL)
-                dpg.add_text("Visuals", color=(255, 255, 255))
+                dpg.add_text("Visuals")
                 dpg.add_separator()
                 
                 # Draw deadzone lines toggle
@@ -10017,7 +10037,7 @@ def create_aimbot_tab():
             
             # Recoil Control sub-tab
             with dpg.tab(label="Recoil Control"):
-                dpg.add_text("Recoil Control", color=(255, 255, 255))
+                dpg.add_text("Recoil Control")
                 dpg.add_separator()
                 
                 # Enable RCS
@@ -10114,146 +10134,9 @@ def create_colors_tab():
     with dpg.tab(label="Appearance"):
         # Nested tab bar for color sub-categories
         with dpg.tab_bar():
-            # ESP Colors sub-tab
-            with dpg.tab(label="ESP"):
-                dpg.add_text("Box Colors", color=(255, 255, 255))
-                dpg.add_separator()
-                
-                # Enemy Box Color
-                dpg.add_color_edit(
-                    label="Enemy Boxes",
-                    default_value=get_color_for_picker("enemy_box_color", (196, 30, 58)),
-                    no_alpha=True,
-                    callback=on_enemy_box_color_change,
-                    tag="color_enemy_box"
-                )
-                
-                # Team Box Color
-                dpg.add_color_edit(
-                    label="Team Boxes",
-                    default_value=get_color_for_picker("team_box_color", (71, 167, 106)),
-                    no_alpha=True,
-                    callback=on_team_box_color_change,
-                    tag="color_team_box"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Snapline Colors", color=(255, 255, 255))
-                dpg.add_separator()
-                
-                # Enemy Snapline Color
-                dpg.add_color_edit(
-                    label="Enemy Snaplines",
-                    default_value=get_color_for_picker("enemy_snapline_color", (196, 30, 58)),
-                    no_alpha=True,
-                    callback=on_enemy_snapline_color_change,
-                    tag="color_enemy_snapline"
-                )
-                
-                # Team Snapline Color
-                dpg.add_color_edit(
-                    label="Team Snaplines",
-                    default_value=get_color_for_picker("team_snapline_color", (71, 167, 106)),
-                    no_alpha=True,
-                    callback=on_team_snapline_color_change,
-                    tag="color_team_snapline"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Skeleton Colors", color=(255, 255, 255))
-                dpg.add_separator()
-                
-                # Enemy Skeleton Color
-                dpg.add_color_edit(
-                    label="Enemy Skeleton",
-                    default_value=get_color_for_picker("enemy_skeleton_color", (255, 255, 255)),
-                    no_alpha=True,
-                    callback=on_enemy_skeleton_color_change,
-                    tag="color_enemy_skeleton"
-                )
-                
-                # Team Skeleton Color
-                dpg.add_color_edit(
-                    label="Team Skeleton",
-                    default_value=get_color_for_picker("team_skeleton_color", (255, 255, 255)),
-                    no_alpha=True,
-                    callback=on_team_skeleton_color_change,
-                    tag="color_team_skeleton"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Head Dot Colors", color=(255, 255, 255))
-                dpg.add_separator()
-                
-                # Enemy Head Dot Color
-                dpg.add_color_edit(
-                    label="Enemy Head Dot",
-                    default_value=get_color_for_picker("enemy_head_dot_color", (255, 255, 0)),
-                    no_alpha=True,
-                    callback=on_enemy_head_dot_color_change,
-                    tag="color_enemy_head_dot"
-                )
-                
-                # Team Head Dot Color
-                dpg.add_color_edit(
-                    label="Team Head Dot",
-                    default_value=get_color_for_picker("team_head_dot_color", (255, 255, 0)),
-                    no_alpha=True,
-                    callback=on_team_head_dot_color_change,
-                    tag="color_team_head_dot"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Spotted Status Colors", color=(255, 255, 255))
-                dpg.add_separator()
-                
-                # Spotted Color (when visible)
-                dpg.add_color_edit(
-                    label="Spotted",
-                    default_value=get_color_for_picker("spotted_color", (0, 255, 0)),
-                    no_alpha=True,
-                    callback=on_spotted_color_change,
-                    tag="color_spotted"
-                )
-                
-                # Not Spotted Color
-                dpg.add_color_edit(
-                    label="Not Spotted",
-                    default_value=get_color_for_picker("not_spotted_color", (255, 0, 0)),
-                    no_alpha=True,
-                    callback=on_not_spotted_color_change,
-                    tag="color_not_spotted"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Footstep ESP Colors", color=(255, 255, 255))
-                dpg.add_separator()
-                
-                # Footstep ESP Color
-                dpg.add_color_edit(
-                    label="Footstep ESP",
-                    default_value=get_color_for_picker("footstep_esp_color", (255, 165, 0)),
-                    no_alpha=True,
-                    callback=on_footstep_esp_color_change,
-                    tag="color_footstep_esp"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Crosshair Colors", color=(255, 255, 255))
-                dpg.add_separator()
-                
-                # Custom Crosshair Color
-                dpg.add_color_edit(
-                    label="Custom Crosshair",
-                    default_value=get_color_for_picker("custom_crosshair_color", (255, 255, 255)),
-                    no_alpha=True,
-                    callback=on_custom_crosshair_color_change,
-                    tag="color_custom_crosshair_color"
-                )
-            
             # Menu Colors sub-tab
             with dpg.tab(label="Menu"):
-                dpg.add_text("UI Theme", color=(255, 255, 255))
+                dpg.add_text("UI Theme")
                 dpg.add_separator()
                 
                 # Get list of colorway names
@@ -10285,7 +10168,7 @@ def create_colors_tab():
                 )
                 
                 dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Window Size", color=(255, 255, 255))
+                dpg.add_text("Window Size")
                 dpg.add_separator()
                 
                 # Window Width Slider
@@ -10313,7 +10196,7 @@ def create_colors_tab():
                 )
                 
                 dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Window Transparency", color=(255, 255, 255))
+                dpg.add_text("Window Transparency")
                 dpg.add_separator()
                 
                 # Menu Transparency Slider
@@ -10331,9 +10214,146 @@ def create_colors_tab():
                     dpg.add_text("Menu window transparency (50 = very transparent, 255 = opaque)")
                 ALL_TOOLTIP_TAGS.append("tooltip_menu_transparency")
             
+            # ESP Colors sub-tab
+            with dpg.tab(label="ESP"):
+                dpg.add_text("Box Colors")
+                dpg.add_separator()
+                
+                # Enemy Box Color
+                dpg.add_color_edit(
+                    label="Enemy Boxes",
+                    default_value=get_color_for_picker("enemy_box_color", (196, 30, 58)),
+                    no_alpha=True,
+                    callback=on_enemy_box_color_change,
+                    tag="color_enemy_box"
+                )
+                
+                # Team Box Color
+                dpg.add_color_edit(
+                    label="Team Boxes",
+                    default_value=get_color_for_picker("team_box_color", (71, 167, 106)),
+                    no_alpha=True,
+                    callback=on_team_box_color_change,
+                    tag="color_team_box"
+                )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Snapline Colors")
+                dpg.add_separator()
+                
+                # Enemy Snapline Color
+                dpg.add_color_edit(
+                    label="Enemy Snaplines",
+                    default_value=get_color_for_picker("enemy_snapline_color", (196, 30, 58)),
+                    no_alpha=True,
+                    callback=on_enemy_snapline_color_change,
+                    tag="color_enemy_snapline"
+                )
+                
+                # Team Snapline Color
+                dpg.add_color_edit(
+                    label="Team Snaplines",
+                    default_value=get_color_for_picker("team_snapline_color", (71, 167, 106)),
+                    no_alpha=True,
+                    callback=on_team_snapline_color_change,
+                    tag="color_team_snapline"
+                )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Skeleton Colors")
+                dpg.add_separator()
+                
+                # Enemy Skeleton Color
+                dpg.add_color_edit(
+                    label="Enemy Skeleton",
+                    default_value=get_color_for_picker("enemy_skeleton_color", (255, 255, 255)),
+                    no_alpha=True,
+                    callback=on_enemy_skeleton_color_change,
+                    tag="color_enemy_skeleton"
+                )
+                
+                # Team Skeleton Color
+                dpg.add_color_edit(
+                    label="Team Skeleton",
+                    default_value=get_color_for_picker("team_skeleton_color", (255, 255, 255)),
+                    no_alpha=True,
+                    callback=on_team_skeleton_color_change,
+                    tag="color_team_skeleton"
+                )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Head Dot Colors")
+                dpg.add_separator()
+                
+                # Enemy Head Dot Color
+                dpg.add_color_edit(
+                    label="Enemy Head Dot",
+                    default_value=get_color_for_picker("enemy_head_dot_color", (255, 255, 0)),
+                    no_alpha=True,
+                    callback=on_enemy_head_dot_color_change,
+                    tag="color_enemy_head_dot"
+                )
+                
+                # Team Head Dot Color
+                dpg.add_color_edit(
+                    label="Team Head Dot",
+                    default_value=get_color_for_picker("team_head_dot_color", (255, 255, 0)),
+                    no_alpha=True,
+                    callback=on_team_head_dot_color_change,
+                    tag="color_team_head_dot"
+                )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Spotted Status Colors")
+                dpg.add_separator()
+                
+                # Spotted Color (when visible)
+                dpg.add_color_edit(
+                    label="Spotted",
+                    default_value=get_color_for_picker("spotted_color", (0, 255, 0)),
+                    no_alpha=True,
+                    callback=on_spotted_color_change,
+                    tag="color_spotted"
+                )
+                
+                # Not Spotted Color
+                dpg.add_color_edit(
+                    label="Not Spotted",
+                    default_value=get_color_for_picker("not_spotted_color", (255, 0, 0)),
+                    no_alpha=True,
+                    callback=on_not_spotted_color_change,
+                    tag="color_not_spotted"
+                )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Footstep ESP Colors")
+                dpg.add_separator()
+                
+                # Footstep ESP Color
+                dpg.add_color_edit(
+                    label="Footstep ESP",
+                    default_value=get_color_for_picker("footstep_esp_color", (255, 165, 0)),
+                    no_alpha=True,
+                    callback=on_footstep_esp_color_change,
+                    tag="color_footstep_esp"
+                )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Crosshair Colors")
+                dpg.add_separator()
+                
+                # Custom Crosshair Color
+                dpg.add_color_edit(
+                    label="Custom Crosshair",
+                    default_value=get_color_for_picker("custom_crosshair_color", (255, 255, 255)),
+                    no_alpha=True,
+                    callback=on_custom_crosshair_color_change,
+                    tag="color_custom_crosshair_color"
+                )
+            
             # Radar Colors sub-tab
             with dpg.tab(label="Radar"):
-                dpg.add_text("Radar Colors", color=(255, 255, 255))
+                dpg.add_text("Radar Colors")
                 dpg.add_separator()
                 
                 # Radar Background Color
@@ -10364,7 +10384,7 @@ def create_colors_tab():
                 )
                 
                 dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Entity Colors", color=(255, 255, 255))
+                dpg.add_text("Entity Colors")
                 dpg.add_separator()
                 
                 # Radar Player Color
@@ -10396,7 +10416,7 @@ def create_colors_tab():
             
             # Aimbot Colors sub-tab
             with dpg.tab(label="Aimbot"):
-                dpg.add_text("Aimbot Colors", color=(255, 255, 255))
+                dpg.add_text("Aimbot Colors")
                 dpg.add_separator()
                 
                 # Aimbot Radius Color
@@ -10445,7 +10465,7 @@ def create_colors_tab():
                 )
                 
                 dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Transparency", color=(255, 255, 255))
+                dpg.add_text("Transparency")
                 dpg.add_separator()
                 
                 # Aimbot radius transparency
@@ -10475,7 +10495,7 @@ def create_colors_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_aimbot_deadzone_transparency")
                 
                 dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Thickness", color=(255, 255, 255))
+                dpg.add_text("Thickness")
                 dpg.add_separator()
                 
                 # Aimbot radius thickness
@@ -10519,7 +10539,7 @@ def create_colors_tab():
             
             # ACP Colors sub-tab
             with dpg.tab(label="Auto Crosshair Placement"):
-                dpg.add_text("ACP Colors", color=(255, 255, 255))
+                dpg.add_text("ACP Colors")
                 dpg.add_separator()
                 
                 # ACS Deadzone Line Color
@@ -10532,7 +10552,7 @@ def create_colors_tab():
                 )
                 
                 dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Deadzone Line Appearance", color=(255, 255, 255))
+                dpg.add_text("Deadzone Line Appearance")
                 dpg.add_separator()
                 
                 # Line width slider
@@ -10620,11 +10640,11 @@ def create_config_tab():
         # Get tooltip visibility setting
         show_tips = Active_Config.get("show_tooltips", True)
         
-        dpg.add_text("Configuration", color=(255, 255, 255))
+        dpg.add_text("Configuration")
         dpg.add_separator()
         
         # Config selection dropdown (auto-refreshes every ~2 seconds)
-        dpg.add_text("Load Config:", color=(200, 200, 200))
+        dpg.add_text("Load Config:")
         configs = get_available_configs()
         dpg.add_combo(
             items=configs,
@@ -10643,7 +10663,7 @@ def create_config_tab():
         dpg.add_spacer(height=UI_SPACING_MEDIUM)
         
         # Save config section
-        dpg.add_text("Save Config:", color=(200, 200, 200))
+        dpg.add_text("Save Config:")
         dpg.add_input_text(
             hint="Enter config name...",
             tag="input_config_name",
@@ -10691,7 +10711,7 @@ def create_debug_tab():
             # Output sub-tab with mini-terminal
             with dpg.tab(label="Output"):
                 # Mini-terminal for debug output
-                dpg.add_text("Debug Terminal", color=(255, 255, 255))
+                dpg.add_text("Debug Terminal")
                 dpg.add_separator()
                 
                 # Scrollable child window for debug output
@@ -10833,7 +10853,7 @@ def create_offsets_content():
     """
     if offsets and client_dll:
         # Display main offsets
-        dpg.add_text("=== Main Offsets ===", color=(255, 255, 255))
+        dpg.add_text("=== Main Offsets ===")
         dpg.add_separator()
         
         for key, value in offsets.get('client.dll', {}).items():
@@ -10842,12 +10862,12 @@ def create_offsets_content():
         dpg.add_spacer(height=UI_SPACING_MEDIUM)
         
         # Display client_dll class offsets
-        dpg.add_text("=== Client DLL Classes ===", color=(255, 255, 255))
+        dpg.add_text("=== Client DLL Classes ===")
         dpg.add_separator()
         
         classes = client_dll.get('client.dll', {}).get('classes', {})
         for class_name, class_data in classes.items():
-            dpg.add_text(f"\n{class_name}:", color=(255, 255, 255))
+            dpg.add_text(f"\n{class_name}:")
             
             fields = class_data.get('fields', {})
             if fields:
@@ -10862,7 +10882,7 @@ def create_performance_content():
     Create the performance monitoring content (used in Debug > Performance sub-tab).
     """
     # Performance Metrics Section
-    dpg.add_text("Performance Metrics", color=(255, 255, 255))
+    dpg.add_text("Performance Metrics")
     dpg.add_separator()
     
     # CPU and Memory
@@ -10885,7 +10905,7 @@ def create_performance_content():
     dpg.add_spacer(height=UI_SPACING_MEDIUM)
     
     # Network Stats Section
-    dpg.add_text("Network Statistics", color=(255, 255, 255))
+    dpg.add_text("Network Statistics")
     dpg.add_separator()
     
     with dpg.group(horizontal=True):
@@ -10899,7 +10919,7 @@ def create_performance_content():
     dpg.add_spacer(height=UI_SPACING_MEDIUM)
     
     # Feature Status Section
-    dpg.add_text("Feature Status", color=(255, 255, 255))
+    dpg.add_text("Feature Status")
     dpg.add_separator()
     
     # ESP Status
@@ -10950,23 +10970,23 @@ def create_performance_content():
     dpg.add_spacer(height=UI_SPACING_MEDIUM)
     
     # Summary Section
-    dpg.add_text("Summary", color=(255, 255, 255))
+    dpg.add_text("Summary")
     dpg.add_separator()
     
     with dpg.group(horizontal=True):
         dpg.add_text("Active Features:")
-        dpg.add_text("0", tag="perf_active_features", color=(255, 255, 255))
+        dpg.add_text("0", tag="perf_active_features")
     
     with dpg.group(horizontal=True):
         dpg.add_text("Active Threads:")
-        dpg.add_text("0", tag="perf_active_threads", color=(255, 255, 255))
+        dpg.add_text("0", tag="perf_active_threads")
     
     dpg.add_spacer(height=UI_SPACING_MEDIUM)
     
     # Controls
     with dpg.group(horizontal=True):
         dpg.add_button(label="Refresh", callback=lambda: update_performance_display())
-        dpg.add_checkbox(label="Auto-refresh", default_value=True, tag="perf_auto_refresh")
+        dpg.add_checkbox(label="Auto-refresh", default_value=False, tag="perf_auto_refresh")
 
 
 def update_performance_display():
@@ -11121,6 +11141,168 @@ def create_cheat_tab():
     create_offsets_tab()
 
 
+def create_keybinds_tab():
+    """
+    Create the Keybinds tab content for cheat window.
+    """
+    with dpg.tab(label="Keybinds"):
+        # Get show_tooltips setting
+        show_tips = Active_Config.get("show_tooltips", True)
+        
+        dpg.add_text("Keybinds")
+        dpg.add_separator()
+        dpg.add_text("Bind ESC key to remove a keybind.")
+        dpg.add_separator()
+        
+        # Menu toggle key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Menu Toggle Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('menu_toggle_key', 'f8').upper()}",
+                tag="btn_bind_menu_toggle_cheat",
+                callback=on_menu_toggle_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_menu_toggle_cheat", tag="tooltip_menu_toggle_key", show=show_tips):
+            dpg.add_text("Key or mouse button to show/hide the cheat menu")
+        ALL_TOOLTIP_TAGS.append("tooltip_menu_toggle_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # ESP toggle key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("ESP Toggle Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('esp_toggle_key', 'capslock').upper()}",
+                tag="btn_bind_esp_toggle_cheat",
+                callback=on_esp_toggle_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_esp_toggle_cheat", tag="tooltip_esp_toggle_key", show=show_tips):
+            dpg.add_text("Key or mouse button to enable/disable ESP overlay")
+        ALL_TOOLTIP_TAGS.append("tooltip_esp_toggle_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # Exit key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Exit Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('exit_key', 'f7').upper()}",
+                tag="btn_bind_exit_cheat",
+                callback=on_exit_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_exit_cheat", tag="tooltip_exit_key", show=show_tips):
+            dpg.add_text("Key or mouse button to close the cheat")
+        ALL_TOOLTIP_TAGS.append("tooltip_exit_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # Aimbot key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Aimbot Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('aimbot_key', 'alt').upper()}",
+                tag="btn_bind_aimbot_cheat",
+                callback=on_aimbot_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_aimbot_cheat", tag="tooltip_aimbot_key", show=show_tips):
+            dpg.add_text("Hold this key or mouse button to activate aimbot")
+        ALL_TOOLTIP_TAGS.append("tooltip_aimbot_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # Triggerbot key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Triggerbot Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('triggerbot_key', 'x').upper()}",
+                tag="btn_bind_triggerbot_cheat",
+                callback=on_triggerbot_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_triggerbot_cheat", tag="tooltip_triggerbot_key", show=show_tips):
+            dpg.add_text("Hold this key or mouse button to activate triggerbot")
+        ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # ACS key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("ACP Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('acs_key', 'v').upper()}",
+                tag="btn_bind_acs_cheat",
+                callback=on_acs_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_acs_cheat", tag="tooltip_acs_key", show=show_tips):
+            dpg.add_text("Hold this key or mouse button to activate auto crosshair placement")
+        ALL_TOOLTIP_TAGS.append("tooltip_acs_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # Aimbot toggle key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Aimbot Toggle Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('aimbot_toggle_key', '').upper() or 'NONE'}",
+                tag="btn_bind_aimbot_toggle_cheat",
+                callback=on_aimbot_toggle_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_aimbot_toggle_cheat", tag="tooltip_aimbot_toggle_key", show=show_tips):
+            dpg.add_text("Key or mouse button to toggle aimbot on/off")
+        ALL_TOOLTIP_TAGS.append("tooltip_aimbot_toggle_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # Head-only mode toggle key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Head-Only Toggle Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('head_only_toggle_key', '').upper() or 'NONE'}",
+                tag="btn_bind_head_only_toggle_cheat",
+                callback=on_head_only_toggle_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_head_only_toggle_cheat", tag="tooltip_head_only_toggle_key", show=show_tips):
+            dpg.add_text("Key or mouse button to toggle head-only mode for triggerbot")
+        ALL_TOOLTIP_TAGS.append("tooltip_head_only_toggle_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # RCS toggle key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("RCS Toggle Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('rcs_toggle_key', '').upper() or 'NONE'}",
+                tag="btn_bind_rcs_toggle_cheat",
+                callback=on_rcs_toggle_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_rcs_toggle_cheat", tag="tooltip_rcs_toggle_key", show=show_tips):
+            dpg.add_text("Key or mouse button to toggle RCS on/off")
+        ALL_TOOLTIP_TAGS.append("tooltip_rcs_toggle_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # Anti-AFK toggle key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Anti-AFK Toggle Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('anti_afk_toggle_key', '').upper() or 'NONE'}",
+                tag="btn_bind_anti_afk_toggle_cheat",
+                callback=on_anti_afk_toggle_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_anti_afk_toggle_cheat", tag="tooltip_anti_afk_toggle_key", show=show_tips):
+            dpg.add_text("Key or mouse button to toggle anti-AFK on/off")
+        ALL_TOOLTIP_TAGS.append("tooltip_anti_afk_toggle_key")
+
+
 def create_settings_tab_cheat():
     """
     Create the Miscellaneous tab content for cheat window.
@@ -11133,7 +11315,7 @@ def create_settings_tab_cheat():
                 # Get show_tooltips setting
                 show_tips = Active_Config.get("show_tooltips", True)
                 
-                dpg.add_text("Cheat Features", color=(255, 255, 255))
+                dpg.add_text("Cheat Features")
                 dpg.add_separator()
                 
                 # Targeting type dropdown - load from Active_Config
@@ -11241,7 +11423,7 @@ def create_settings_tab_cheat():
                 # Get show_tooltips setting
                 show_tips = Active_Config.get("show_tooltips", True)
                 
-                dpg.add_text("General Settings", color=(255, 255, 255))
+                dpg.add_text("General Settings")
                 dpg.add_separator()
                 
                 # Rounded corners option (Windows 11 only)
@@ -11305,161 +11487,6 @@ def create_settings_tab_cheat():
                 with dpg.tooltip("chk_show_status_labels", tag="tooltip_show_status_labels", show=show_tips):
                     dpg.add_text("Show feature status labels in the overlay")
                 ALL_TOOLTIP_TAGS.append("tooltip_show_status_labels")
-            
-            # Keybinds sub-tab
-            with dpg.tab(label="Keybinds"):
-                dpg.add_text("Keybinds", color=(255, 255, 255))
-                dpg.add_separator()
-                dpg.add_text("Bind ESC key to remove a keybind.")
-                dpg.add_separator()
-                
-                # Menu toggle key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Menu Toggle Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('menu_toggle_key', 'f8').upper()}",
-                        tag="btn_bind_menu_toggle_cheat",
-                        callback=on_menu_toggle_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_menu_toggle_cheat", tag="tooltip_menu_toggle_key", show=show_tips):
-                    dpg.add_text("Key or mouse button to show/hide the cheat menu")
-                ALL_TOOLTIP_TAGS.append("tooltip_menu_toggle_key")
-                
-                dpg.add_spacer(height=2)
-                
-                # ESP toggle key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("ESP Toggle Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('esp_toggle_key', 'capslock').upper()}",
-                        tag="btn_bind_esp_toggle_cheat",
-                        callback=on_esp_toggle_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_esp_toggle_cheat", tag="tooltip_esp_toggle_key", show=show_tips):
-                    dpg.add_text("Key or mouse button to enable/disable ESP overlay")
-                ALL_TOOLTIP_TAGS.append("tooltip_esp_toggle_key")
-                
-                dpg.add_spacer(height=2)
-                
-                # Exit key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Exit Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('exit_key', 'f7').upper()}",
-                        tag="btn_bind_exit_cheat",
-                        callback=on_exit_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_exit_cheat", tag="tooltip_exit_key", show=show_tips):
-                    dpg.add_text("Key or mouse button to close the cheat")
-                ALL_TOOLTIP_TAGS.append("tooltip_exit_key")
-                
-                dpg.add_spacer(height=2)
-                
-                # Aimbot key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Aimbot Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('aimbot_key', 'alt').upper()}",
-                        tag="btn_bind_aimbot_cheat",
-                        callback=on_aimbot_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_aimbot_cheat", tag="tooltip_aimbot_key", show=show_tips):
-                    dpg.add_text("Hold this key or mouse button to activate aimbot")
-                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_key")
-                
-                dpg.add_spacer(height=2)
-                
-                # Triggerbot key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Triggerbot Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('triggerbot_key', 'x').upper()}",
-                        tag="btn_bind_triggerbot_cheat",
-                        callback=on_triggerbot_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_triggerbot_cheat", tag="tooltip_triggerbot_key", show=show_tips):
-                    dpg.add_text("Hold this key or mouse button to activate triggerbot")
-                ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_key")
-                
-                dpg.add_spacer(height=2)
-                
-                # ACS key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("ACP Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('acs_key', 'v').upper()}",
-                        tag="btn_bind_acs_cheat",
-                        callback=on_acs_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_acs_cheat", tag="tooltip_acs_key", show=show_tips):
-                    dpg.add_text("Hold this key or mouse button to activate auto crosshair placement")
-                ALL_TOOLTIP_TAGS.append("tooltip_acs_key")
-                
-                dpg.add_spacer(height=2)
-                
-                # Aimbot toggle key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Aimbot Toggle Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('aimbot_toggle_key', '').upper() or 'NONE'}",
-                        tag="btn_bind_aimbot_toggle_cheat",
-                        callback=on_aimbot_toggle_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_aimbot_toggle_cheat", tag="tooltip_aimbot_toggle_key", show=show_tips):
-                    dpg.add_text("Key or mouse button to toggle aimbot on/off")
-                ALL_TOOLTIP_TAGS.append("tooltip_aimbot_toggle_key")
-                
-                dpg.add_spacer(height=2)
-                
-                # Head-only mode toggle key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Head-Only Toggle Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('head_only_toggle_key', '').upper() or 'NONE'}",
-                        tag="btn_bind_head_only_toggle_cheat",
-                        callback=on_head_only_toggle_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_head_only_toggle_cheat", tag="tooltip_head_only_toggle_key", show=show_tips):
-                    dpg.add_text("Key or mouse button to toggle head-only mode for triggerbot")
-                ALL_TOOLTIP_TAGS.append("tooltip_head_only_toggle_key")
-                
-                dpg.add_spacer(height=2)
-                
-                # RCS toggle key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("RCS Toggle Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('rcs_toggle_key', '').upper() or 'NONE'}",
-                        tag="btn_bind_rcs_toggle_cheat",
-                        callback=on_rcs_toggle_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_rcs_toggle_cheat", tag="tooltip_rcs_toggle_key", show=show_tips):
-                    dpg.add_text("Key or mouse button to toggle RCS on/off")
-                ALL_TOOLTIP_TAGS.append("tooltip_rcs_toggle_key")
-                
-                dpg.add_spacer(height=2)
-                
-                # Anti-AFK toggle key button
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Anti-AFK Toggle Key:")
-                    dpg.add_button(
-                        label=f"{Keybinds_Config.get('anti_afk_toggle_key', '').upper() or 'NONE'}",
-                        tag="btn_bind_anti_afk_toggle_cheat",
-                        callback=on_anti_afk_toggle_key_button,
-                        width=150
-                    )
-                with dpg.tooltip("btn_bind_anti_afk_toggle_cheat", tag="tooltip_anti_afk_toggle_key", show=show_tips):
-                    dpg.add_text("Key or mouse button to toggle anti-AFK on/off")
-                ALL_TOOLTIP_TAGS.append("tooltip_anti_afk_toggle_key")
 
 
 def create_main_window(title, window_type="loader"):
@@ -11493,6 +11520,7 @@ def create_main_window(title, window_type="loader"):
                 update_esp_preview()  # Initialize ESP preview
                 create_aimbot_tab()
                 create_settings_tab_cheat()
+                create_keybinds_tab()
                 create_colors_tab()
                 create_config_tab()
                 if loader_settings.get("ShowDebugTab", False):
