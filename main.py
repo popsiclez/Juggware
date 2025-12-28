@@ -32,6 +32,16 @@ from imgui.integrations.glfw import GlfwRenderer
 from OpenGL.GL import *
 
 
+# Skip loader flag - set to True to bypass loader and load cheat directly
+SKIP_LOADER = True
+
+# Graphics reset flag - set to True to reset graphics before starting cheat
+RESET_GRAPHICS = False
+
+# Delay in seconds before starting cheat after graphics reset
+RESET_GRAPHICS_DELAY = 10
+
+
 # =============================================================================
 # CONSTANTS
 # =============================================================================
@@ -127,6 +137,64 @@ BONE_CONNECTIONS = [
     ("right_elbow", "right_wrist"),
 ]
 
+# Weapon ID to name mapping for ESP weapon labels
+WEAPON_NAMES = {
+    1: "Deagle",
+    2: "Dual Berettas",
+    3: "Five-SeveN",
+    4: "Glock-18",
+    7: "AK-47",
+    8: "AUG",
+    9: "AWP",
+    10: "FAMAS",
+    11: "G3SG1",
+    13: "Galil AR",
+    14: "M249",
+    16: "M4A4",
+    17: "MAC-10",
+    19: "P90",
+    24: "UMP-45",
+    25: "XM1014",
+    26: "PP-Bizon",
+    27: "MAG-7",
+    28: "Negev",
+    29: "Sawed-Off",
+    30: "Tec-9",
+    31: "Zeus x27",
+    32: "P2000",
+    33: "MP7",
+    34: "MP9",
+    35: "Nova",
+    36: "P250",
+    38: "SCAR-20",
+    39: "SG 553",
+    40: "SSG 08",
+    42: "Knife",
+    43: "Flashbang",
+    44: "HE Grenade",
+    45: "Smoke",
+    46: "Molotov",
+    47: "Decoy",
+    48: "Incendiary",
+    49: "C4",
+    59: "Knife",
+    60: "M4A1-S",
+    61: "USP-S",
+    63: "CZ75-Auto",
+    64: "R8 Revolver",
+    500: "Bayonet",
+    505: "Flip Knife",
+    506: "Gut Knife",
+    507: "Karambit",
+    508: "M9 Bayonet",
+    509: "Tactical",
+    512: "Falchion",
+    514: "Bowie",
+    515: "Butterfly",
+    516: "Push Dagger",
+    526: "Kukri"
+}
+
 # =============================================================================
 # CONFIGURATION SYSTEM
 # =============================================================================
@@ -146,6 +214,8 @@ Default_Config = {
     "healthbar_type": "Vertical Left",   # "Vertical Left", "Vertical Right", "Horizontal Above", "Horizontal Below"
     "name_esp": True,
     "distance_esp": True,
+    "weapon_esp": True,
+    "hide_unknown_weapons": False,
     "head_dot": True,
     "team_color": (71, 167, 106),      # Legacy - kept for compatibility
     "enemy_color": (196, 30, 58),      # Legacy - kept for compatibility
@@ -237,6 +307,12 @@ Default_Config = {
     "not_spotted_color": (255, 0, 0),       # Color when not spotted (red)
     "spotted_text_size": 12.0,              # Spotted text font size
     "name_text_size": 14.0,                 # Nickname text font size
+    "weapon_text_size": 11.0,               # Weapon text font size
+    # ESP Distance Filter
+    "esp_distance_filter_enabled": False,   # Enable distance-based ESP filtering
+    "esp_distance_filter_type": "Further than", # "Further than" or "Closer than"
+    "esp_distance_filter_distance": 25.0,   # Distance threshold in meters (5-50)
+    "esp_distance_filter_mode": "Only Show", # "Only Show" or "Hide"
     # FPS Cap
     "fps_cap_enabled": False,               # Enable FPS limiting
     "fps_cap_value": 144,                   # FPS cap value
@@ -275,6 +351,8 @@ Default_Config = {
     # Hitsound
     "hitsound_enabled": False,              # Enable hitsound
     "hitsound_type": "hitmarker",           # Hitsound type ("hitmarker", "criticalhit", "metalhit")
+    # Anti-AFK
+    "anti_afk_enabled": False,              # Enable anti-AFK movement
 }
 
 # =============================================================================
@@ -780,6 +858,7 @@ Keybinds_Config = {
     "aimbot_toggle_key": "",  # Key to toggle aimbot on/off
     "head_only_toggle_key": "",  # Key to toggle head-only mode for triggerbot
     "rcs_toggle_key": "",  # Key to toggle RCS on/off
+    "anti_afk_toggle_key": "",  # Key to toggle anti-AFK on/off
 }
 
 
@@ -866,6 +945,8 @@ m_iItemDefinitionIndex = None
 m_hActiveWeapon = None
 m_iClip1 = None
 pBulletServicesOffset = None
+m_pClippingWeapon = None
+m_iItemDefinitionIndex = None
 
 # Bomb offsets
 m_flTimerLength = None
@@ -953,6 +1034,13 @@ hitsound_state = {
     "thread": None,             # Reference to hitsound thread
     "settings": None,           # Current hitsound settings
     "previous_total_hits": 0,   # Previous total hits count
+}
+
+# Anti-AFK State
+anti_afk_state = {
+    "running": False,           # Whether anti-AFK thread is running
+    "thread": None,             # Reference to anti-AFK thread
+    "settings": None,           # Current anti-AFK settings
 }
 
 # Footstep ESP State - Tracks footstep rings for each player
@@ -1239,6 +1327,8 @@ def apply_config_to_ui():
             "chk_skeleton_esp": "skeleton_esp",
             "chk_name_esp": "name_esp",
             "chk_distance_esp": "distance_esp",
+            "chk_weapon_esp": "weapon_esp",
+            "chk_hide_unknown_weapons": "hide_unknown_weapons",
             "chk_health_bar": "health_bar",
             "chk_armor_bar": "armor_bar",
             "chk_head_dot": "head_dot",
@@ -1267,6 +1357,7 @@ def apply_config_to_ui():
             "chk_fps_cap_enabled": "fps_cap_enabled",
             "chk_hide_on_tabout": "hide_on_tabout",
             "chk_show_status_labels": "show_status_labels",
+            "chk_anti_afk_enabled": "anti_afk_enabled",
         }
         
         for tag, config_key in checkbox_mappings.items():
@@ -1283,6 +1374,7 @@ def apply_config_to_ui():
             "slider_custom_crosshair_thickness": "custom_crosshair_thickness",
             "slider_spotted_text_size": "spotted_text_size",
             "slider_name_text_size": "name_text_size",
+            "slider_weapon_text_size": "weapon_text_size",
             "slider_radar_size": "radar_size",
             "slider_radar_scale": "radar_scale",
             "slider_radar_opacity": "radar_opacity",
@@ -1571,6 +1663,93 @@ def refresh_config_list():
 
 
 # =============================================================================
+# ANTI-AFK CALLBACKS
+# =============================================================================
+
+def on_anti_afk_toggle(sender, value):
+    """Handle anti-AFK enable/disable toggle."""
+    Active_Config["anti_afk_enabled"] = value
+    save_settings()
+    
+    if value:
+        start_anti_afk_thread()
+    else:
+        stop_anti_afk_thread()
+    
+    debug_log(f"Anti-AFK {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_anti_afk_toggle_key_button():
+    """Handle anti-AFK toggle key bind button click."""
+    global keybind_listener
+    keybind_listener["listening"] = True
+    keybind_listener["target"] = "anti_afk_toggle_key"
+    # Update button text to show we're listening
+    try:
+        dpg.set_item_label("btn_bind_anti_afk_toggle_cheat", "Press any key...")
+    except:
+        pass
+
+
+def anti_afk_loop():
+    """Main anti-AFK loop that presses W,A,S,D keys in sequence."""
+    global anti_afk_state
+    
+    keys = [0x57, 0x41, 0x53, 0x44]  # W, A, S, D virtual key codes
+    key_names = ['W', 'A', 'S', 'D']
+    
+    while anti_afk_state["running"]:
+        for i, key in enumerate(keys):
+            if not anti_afk_state["running"]:
+                break
+                
+            # Press key down
+            win32api.keybd_event(key, 0, 0, 0)
+            debug_log(f"Anti-AFK: Pressed {key_names[i]}", "INFO")
+            
+            # Wait 100ms
+            time.sleep(0.1)
+            
+            # Release key
+            win32api.keybd_event(key, 0, win32con.KEYEVENTF_KEYUP, 0)
+            
+            # Wait 1 second before next key
+            time.sleep(1.0)
+        
+        # Wait 5 seconds before starting the cycle again
+        time.sleep(5.0)
+
+
+def start_anti_afk_thread():
+    """Start the anti-AFK thread."""
+    global anti_afk_state
+    
+    if anti_afk_state["running"]:
+        return  # Already running
+    
+    anti_afk_state["running"] = True
+    anti_afk_state["thread"] = threading.Thread(target=anti_afk_loop, daemon=True)
+    anti_afk_state["thread"].start()
+    debug_log("Anti-AFK thread started", "SUCCESS")
+
+
+def stop_anti_afk_thread():
+    """Stop the anti-AFK thread."""
+    global anti_afk_state
+    
+    if not anti_afk_state["running"]:
+        return  # Not running
+    
+    anti_afk_state["running"] = False
+    
+    if anti_afk_state["thread"] and anti_afk_state["thread"].is_alive():
+        anti_afk_state["thread"].join(timeout=2.0)
+    
+    anti_afk_state["thread"] = None
+    debug_log("Anti-AFK thread stopped", "INFO")
+
+
+# =============================================================================
 # DEBUG OUTPUT SYSTEM
 # =============================================================================
 
@@ -1676,7 +1855,7 @@ def initialize_offset_globals():
     global m_aimPunchAngle, m_iShotsFired, m_bIsScoped, m_pCameraServices
     global m_vOldOrigin, m_pWeaponServices
     global m_vecAbsOrigin, m_vecOrigin, m_modelState
-    global m_AttributeManager, m_Item, m_iItemDefinitionIndex, m_hActiveWeapon, m_iClip1
+    global m_AttributeManager, m_Item, m_iItemDefinitionIndex, m_hActiveWeapon, m_iClip1, m_pClippingWeapon, m_iItemDefinitionIndex
     global m_flTimerLength, m_flDefuseLength, m_bBeingDefused, m_nBombSite
     global m_bSpotted, m_bSpottedByMask
     global m_iFOV, m_flFlashMaxAlpha
@@ -1733,7 +1912,9 @@ def initialize_offset_globals():
         m_iItemDefinitionIndex = client_dll['client.dll']['classes']['C_EconItemView']['fields']['m_iItemDefinitionIndex']
         m_hActiveWeapon = client_dll['client.dll']['classes']['CPlayer_WeaponServices']['fields']['m_hActiveWeapon']
         m_iClip1 = client_dll['client.dll']['classes']['C_BasePlayerWeapon']['fields']['m_iClip1']
-        
+        m_pClippingWeapon = client_dll['client.dll']['classes']['C_CSPlayerPawn']['fields']['m_pClippingWeapon']
+        m_iItemDefinitionIndex = client_dll['client.dll']['classes']['C_EconItemView']['fields']['m_iItemDefinitionIndex']
+
         # Bomb offsets
         m_flTimerLength = client_dll['client.dll']['classes']['C_PlantedC4']['fields']['m_flTimerLength']
         m_flDefuseLength = client_dll['client.dll']['classes']['C_PlantedC4']['fields']['m_flDefuseLength']
@@ -2489,6 +2670,37 @@ def render_esp_frame(overlay, pm, client, settings):
             entity_origin_y = pm.read_float(game_scene + m_vecAbsOrigin + 4)
             entity_origin_z = pm.read_float(game_scene + m_vecAbsOrigin + 8)
             
+            # Apply ESP distance filter if enabled
+            if settings.get('esp_distance_filter_enabled', False):
+                # Calculate 3D distance between local player and entity
+                distance = math.sqrt(
+                    (entity_origin_x - local_origin_x) ** 2 +
+                    (entity_origin_y - local_origin_y) ** 2 +
+                    (entity_origin_z - local_origin_z) ** 2
+                )
+                
+                filter_type = settings.get('esp_distance_filter_type', 'Further than')
+                filter_distance = settings.get('esp_distance_filter_distance', 25.0)
+                filter_mode = settings.get('esp_distance_filter_mode', 'Only Show')
+                
+                # Calculate displayed distance in meters (same as ESP display)
+                displayed_distance_m = int(distance / 100)
+                
+                # Check if entity matches the filter criteria using displayed distance
+                matches_filter = False
+                if filter_type == 'Further than':
+                    matches_filter = displayed_distance_m > filter_distance
+                elif filter_type == 'Closer than':
+                    matches_filter = displayed_distance_m < filter_distance
+                
+                # Apply filter mode
+                if filter_mode == 'Only Show':
+                    if not matches_filter:
+                        continue  # Skip this entity
+                elif filter_mode == 'Hide':
+                    if matches_filter:
+                        continue  # Skip this entity
+            
             # Update Footstep ESP tracking for this entity
             if settings.get('footstep_esp', False):
                 update_footstep_esp(pm, entity_pawn_addr, game_scene, local_player_team, entity_team, settings)
@@ -2789,6 +3001,48 @@ def render_esp_frame(overlay, pm, client, settings):
                 
                 # Draw with white color
                 overlay.draw_text(text_x, center_y - text_size/2, distance_text, 255, 255, 255, size=text_size, stroke=True, font_name=selected_font)
+            
+            # Draw weapon name below the player
+            if settings.get('weapon_esp', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
+                try:
+                    # Get current weapon from pawn
+                    current_weapon_addr = pm.read_longlong(entity_pawn_addr + m_pClippingWeapon)
+                    if current_weapon_addr != 0:
+                        # Get weapon definition index
+                        weapon_def_index = pm.read_int(current_weapon_addr + m_AttributeManager + m_Item + m_iItemDefinitionIndex)
+                        
+                        # Get weapon name from mapping
+                        weapon_name = WEAPON_NAMES.get(weapon_def_index, f"Unknown ({weapon_def_index})")
+                        
+                        # Check if we should hide unknown weapons
+                        if not settings.get('hide_unknown_weapons', False) or weapon_def_index in WEAPON_NAMES:
+                            # Draw below the player box
+                            weapon_text = weapon_name
+                            weapon_text_size = settings.get('weapon_text_size', 11.0)
+                            selected_font = settings.get('menu_font', 'Default')
+                            
+                            # Calculate text width for centering
+                            weapon_text_width = overlay.calc_text_width(weapon_text, weapon_text_size, selected_font)
+                            weapon_text_x = head_pos[0] - (weapon_text_width / 2)
+                            
+                            # Position weapon text below player, accounting for health/shield bars
+                            healthbar_type = settings.get('healthbar_type', 'Vertical Left')
+                            if healthbar_type == 'Horizontal Below':
+                                # Position below health and armor bars when they are at the bottom
+                                if settings.get('armor_bar', True) and entity_armor > 0:
+                                    # Both health and armor bars are present: health at +2, armor at +6, each 3px high
+                                    weapon_text_y = head_pos[1] + deltaZ + 11  # 2 + 3 + 1 + 3 + 2 = below both bars
+                                else:
+                                    # Only health bar present: at +2, 3px high
+                                    weapon_text_y = head_pos[1] + deltaZ + 7  # 2 + 3 + 2 = below health bar
+                            else:
+                                # Health bars are vertical or above, so position just below feet
+                                weapon_text_y = leg_pos[1] + 2
+                            
+                            # Draw with white color
+                            overlay.draw_text(weapon_text_x, weapon_text_y, weapon_text, 255, 255, 255, size=weapon_text_size, stroke=True, font_name=selected_font)
+                except Exception:
+                    pass
                 
         except Exception:
             continue
@@ -4128,6 +4382,7 @@ def esp_overlay_thread():
                 triggerbot_status = "ON" if Active_Config.get("triggerbot_enabled", False) else "OFF"
                 head_only_status = "ON" if Active_Config.get("triggerbot_head_only", False) else "OFF"
                 rcs_status = "ON" if Active_Config.get("rcs_enabled", False) else "OFF"
+                anti_afk_status = "ON" if Active_Config.get("anti_afk_enabled", False) else "OFF"
                 
                 # ESP status (green for ON, red for OFF)
                 esp_keybind = Keybinds_Config.get("esp_toggle_key", "").upper()
@@ -4168,6 +4423,14 @@ def esp_overlay_thread():
                 overlay.draw_text(5, 85, rcs_label, 255, 255, 255, size=12.0, stroke=True)
                 status_color = (0, 255, 0) if rcs_status == "ON" else (255, 0, 0)
                 overlay.draw_text(rcs_status_x, 85, rcs_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
+                
+                # Anti-AFK status
+                anti_afk_keybind = Keybinds_Config.get("anti_afk_toggle_key", "").upper()
+                anti_afk_label = f"({anti_afk_keybind}) Anti-AFK: " if anti_afk_keybind else "Anti-AFK: "
+                anti_afk_status_x = 140 if anti_afk_keybind else 85
+                overlay.draw_text(5, 100, anti_afk_label, 255, 255, 255, size=12.0, stroke=True)
+                status_color = (0, 255, 0) if anti_afk_status == "ON" else (255, 0, 0)
+                overlay.draw_text(anti_afk_status_x, 100, anti_afk_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
             
             overlay.end_paint()
             
@@ -7008,6 +7271,26 @@ def on_distance_esp_toggle(sender, value):
     update_esp_preview()
 
 
+def on_weapon_esp_toggle(sender, value):
+    """Handle Weapon ESP toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["weapon_esp"] = value
+        Active_Config["weapon_esp"] = value
+        save_settings()
+        debug_log(f"Weapon ESP {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
+
+
+def on_hide_unknown_weapons_toggle(sender, value):
+    """Handle Hide Unknown Weapons toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["hide_unknown_weapons"] = value
+        Active_Config["hide_unknown_weapons"] = value
+        save_settings()
+        debug_log(f"Hide unknown weapons {'enabled' if value else 'disabled'}", "INFO")
+    update_esp_preview()
+
+
 def on_health_bar_toggle(sender, value):
     """Handle Health Bar toggle."""
     if esp_overlay["settings"]:
@@ -7215,6 +7498,48 @@ def on_custom_crosshair_shape_change(sender, value):
     Active_Config["custom_crosshair_shape"] = value
     save_settings()
     debug_log(f"Custom crosshair shape changed to: {value}", "INFO")
+
+
+def on_esp_distance_filter_toggle(sender, value):
+    """Handle ESP distance filter toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["esp_distance_filter_enabled"] = value
+    Active_Config["esp_distance_filter_enabled"] = value
+    save_settings()
+    
+    # Show/hide the filter controls based on toggle state
+    dpg.configure_item("combo_esp_distance_filter_type", show=value)
+    dpg.configure_item("slider_esp_distance_filter_distance", show=value)
+    dpg.configure_item("combo_esp_distance_filter_mode", show=value)
+    
+    debug_log(f"ESP distance filter {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_esp_distance_filter_type_change(sender, value):
+    """Handle ESP distance filter type dropdown change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["esp_distance_filter_type"] = value
+    Active_Config["esp_distance_filter_type"] = value
+    save_settings()
+    debug_log(f"ESP distance filter type changed to: {value}", "INFO")
+
+
+def on_esp_distance_filter_distance_change(sender, value):
+    """Handle ESP distance filter distance slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["esp_distance_filter_distance"] = value
+    Active_Config["esp_distance_filter_distance"] = value
+    save_settings()
+    debug_log(f"ESP distance filter distance changed to: {value}", "INFO")
+
+
+def on_esp_distance_filter_mode_change(sender, value):
+    """Handle ESP distance filter mode dropdown change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["esp_distance_filter_mode"] = value
+    Active_Config["esp_distance_filter_mode"] = value
+    save_settings()
+    debug_log(f"ESP distance filter mode changed to: {value}", "INFO")
 
 
 # =============================================================================
@@ -7445,6 +7770,16 @@ def on_name_text_size_change(sender, value):
     save_settings()
     update_esp_preview()  # Update the preview with new text size
     debug_log(f"Nickname text size changed to: {value}", "INFO")
+
+
+def on_weapon_text_size_change(sender, value):
+    """Handle weapon text size slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["weapon_text_size"] = value
+    Active_Config["weapon_text_size"] = value
+    save_settings()
+    update_esp_preview()  # Update the preview with new text size
+    debug_log(f"Weapon text size changed to: {value}", "INFO")
 
 
 def on_radar_bg_color_change(sender, value):
@@ -8666,6 +9001,8 @@ def draw_preview_player(x, y, name, settings, is_enemy=True):
         distance_enabled = settings.get('distance_esp', True)
         spotted_size = settings.get('spotted_text_size', 12.0) if spotted_enabled else 0
         name_size = settings.get('name_text_size', 14.0) if name_enabled else 0
+        weapon_enabled = settings.get('weapon_esp', True)
+        weapon_size = settings.get('weapon_text_size', 11.0) if weapon_enabled else 0
         
         # Calculate total height needed for text stack
         text_stack_height = 0
@@ -8866,6 +9203,26 @@ def create_esp_tab():
                 with dpg.tooltip("chk_distance_esp", tag="tooltip_distance_esp", show=show_tips):
                     dpg.add_text("Display distance to players at center of boxes")
                 ALL_TOOLTIP_TAGS.append("tooltip_distance_esp")
+                
+                dpg.add_checkbox(
+                    label="Show Weapon", 
+                    default_value=Active_Config.get("weapon_esp", True),
+                    tag="chk_weapon_esp",
+                    callback=on_weapon_esp_toggle
+                )
+                with dpg.tooltip("chk_weapon_esp", tag="tooltip_weapon_esp", show=show_tips):
+                    dpg.add_text("Display current weapon name below player")
+                ALL_TOOLTIP_TAGS.append("tooltip_weapon_esp")
+                
+                dpg.add_checkbox(
+                    label="Hide Unknown Weapons", 
+                    default_value=Active_Config.get("hide_unknown_weapons", False),
+                    tag="chk_hide_unknown_weapons",
+                    callback=on_hide_unknown_weapons_toggle
+                )
+                with dpg.tooltip("chk_hide_unknown_weapons", tag="tooltip_hide_unknown_weapons", show=show_tips):
+                    dpg.add_text("Hide weapon names for unknown weapon IDs")
+                ALL_TOOLTIP_TAGS.append("tooltip_hide_unknown_weapons")
                 
                 dpg.add_checkbox(
                     label="Health Bar", 
@@ -9073,6 +9430,19 @@ def create_esp_tab():
                     dpg.add_text("Font size for player nickname text")
                 ALL_TOOLTIP_TAGS.append("tooltip_name_text_size")
                 
+                dpg.add_slider_float(
+                    label="Weapon",
+                    default_value=Active_Config.get("weapon_text_size", 11.0),
+                    min_value=8.0,
+                    max_value=24.0,
+                    tag="slider_weapon_text_size",
+                    callback=on_weapon_text_size_change,
+                    format="%.1f"
+                )
+                with dpg.tooltip("slider_weapon_text_size", tag="tooltip_weapon_text_size", show=show_tips):
+                    dpg.add_text("Font size for weapon name text")
+                ALL_TOOLTIP_TAGS.append("tooltip_weapon_text_size")
+                
                 dpg.add_separator()
                 dpg.add_text("Crosshair Options")
                 
@@ -9112,25 +9482,62 @@ def create_esp_tab():
                 with dpg.tooltip("combo_custom_crosshair_shape", tag="tooltip_custom_crosshair_shape", show=show_tips):
                     dpg.add_text("Crosshair shape preset")
                 ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_shape")
-            
-            # =========== CROSSHAIR COLORS SUBTAB ===========
-            with dpg.tab(label="Crosshair Colors"):
-                dpg.add_text("Crosshair Colors", color=(255, 255, 255))
-                dpg.add_separator()
                 
-                # Color picker for crosshair color
-                dpg.add_color_edit(
-                    label="Color",
-                    default_value=get_color_for_picker("custom_crosshair_color", (255, 255, 255)),
-                    tag="color_custom_crosshair_color",
-                    callback=on_custom_crosshair_color_change,
-                    no_inputs=False,
-                    no_label=False,
-                    alpha_bar=False
+                dpg.add_separator()
+                dpg.add_text("ESP Distance Filter")
+                
+                # ESP Distance Filter toggle
+                dpg.add_checkbox(
+                    label="ESP Distance Filter",
+                    default_value=Active_Config.get("esp_distance_filter_enabled", False),
+                    tag="chk_esp_distance_filter_enabled",
+                    callback=on_esp_distance_filter_toggle
                 )
-                with dpg.tooltip("color_custom_crosshair_color", tag="tooltip_custom_crosshair_color", show=show_tips):
-                    dpg.add_text("Color for custom crosshair")
-                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_color")
+                with dpg.tooltip("chk_esp_distance_filter_enabled", tag="tooltip_esp_distance_filter_enabled", show=show_tips):
+                    dpg.add_text("Filter ESP based on player distance")
+                ALL_TOOLTIP_TAGS.append("tooltip_esp_distance_filter_enabled")
+                
+                # Distance Filter Type dropdown (shown when enabled)
+                dpg.add_combo(
+                    items=["Further than", "Closer than"],
+                    default_value=Active_Config.get("esp_distance_filter_type", "Further than"),
+                    label="Distance Filter",
+                    tag="combo_esp_distance_filter_type",
+                    callback=on_esp_distance_filter_type_change,
+                    show=Active_Config.get("esp_distance_filter_enabled", False)
+                )
+                with dpg.tooltip("combo_esp_distance_filter_type", tag="tooltip_esp_distance_filter_type", show=show_tips):
+                    dpg.add_text("Filter direction: show players further/closer than distance")
+                ALL_TOOLTIP_TAGS.append("tooltip_esp_distance_filter_type")
+                
+                # Distance slider (shown when enabled)
+                dpg.add_slider_float(
+                    label="Distance (m)",
+                    default_value=Active_Config.get("esp_distance_filter_distance", 25.0),
+                    min_value=5.0,
+                    max_value=50.0,
+                    tag="slider_esp_distance_filter_distance",
+                    callback=on_esp_distance_filter_distance_change,
+                    format="%.1f",
+                    show=Active_Config.get("esp_distance_filter_enabled", False)
+                )
+                with dpg.tooltip("slider_esp_distance_filter_distance", tag="tooltip_esp_distance_filter_distance", show=show_tips):
+                    dpg.add_text("Distance threshold in meters (5-50)")
+                ALL_TOOLTIP_TAGS.append("tooltip_esp_distance_filter_distance")
+                
+                # Filter Mode dropdown (shown when enabled)
+                dpg.add_combo(
+                    items=["Only Show", "Hide"],
+                    default_value=Active_Config.get("esp_distance_filter_mode", "Only Show"),
+                    label="Filter Type",
+                    tag="combo_esp_distance_filter_mode",
+                    callback=on_esp_distance_filter_mode_change,
+                    show=Active_Config.get("esp_distance_filter_enabled", False)
+                )
+                with dpg.tooltip("combo_esp_distance_filter_mode", tag="tooltip_esp_distance_filter_mode", show=show_tips):
+                    dpg.add_text("Only Show: display only matching players")
+                    dpg.add_text("Hide: hide matching players")
+                ALL_TOOLTIP_TAGS.append("tooltip_esp_distance_filter_mode")
             
             # =========== RADAR SUBTAB ===========
             with dpg.tab(label="Radar"):
@@ -9830,6 +10237,19 @@ def create_colors_tab():
                     callback=on_footstep_esp_color_change,
                     tag="color_footstep_esp"
                 )
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Crosshair Colors", color=(255, 255, 255))
+                dpg.add_separator()
+                
+                # Custom Crosshair Color
+                dpg.add_color_edit(
+                    label="Custom Crosshair",
+                    default_value=get_color_for_picker("custom_crosshair_color", (255, 255, 255)),
+                    no_alpha=True,
+                    callback=on_custom_crosshair_color_change,
+                    tag="color_custom_crosshair_color"
+                )
             
             # Menu Colors sub-tab
             with dpg.tab(label="Menu"):
@@ -10290,6 +10710,10 @@ def create_debug_tab():
             # Offsets sub-tab
             with dpg.tab(label="Offsets"):
                 create_offsets_content()
+            
+            # Performance sub-tab
+            with dpg.tab(label="Performance", tag="tab_performance"):
+                create_performance_content()
 
 
 def clear_debug_terminal():
@@ -10433,6 +10857,251 @@ def create_offsets_content():
         dpg.add_text("Offsets not loaded yet. Launch the cheat first.", color=(255, 100, 100))
 
 
+def create_performance_content():
+    """
+    Create the performance monitoring content (used in Debug > Performance sub-tab).
+    """
+    # Performance Metrics Section
+    dpg.add_text("Performance Metrics", color=(255, 255, 255))
+    dpg.add_separator()
+    
+    # CPU and Memory
+    with dpg.group(horizontal=True):
+        dpg.add_text("CPU Usage:")
+        dpg.add_text("0.0%", tag="perf_cpu_usage", color=(100, 255, 100))
+    
+    with dpg.group(horizontal=True):
+        dpg.add_text("Memory Usage:")
+        dpg.add_text("0 MB", tag="perf_memory_usage", color=(100, 255, 100))
+    
+    with dpg.group(horizontal=True):
+        dpg.add_text("Disk Usage:")
+        dpg.add_text("0 GB", tag="perf_disk_usage", color=(100, 255, 100))
+    
+    with dpg.group(horizontal=True):
+        dpg.add_text("ESP FPS:")
+        dpg.add_text("0", tag="perf_esp_fps", color=(100, 255, 100))
+    
+    dpg.add_spacer(height=UI_SPACING_MEDIUM)
+    
+    # Network Stats Section
+    dpg.add_text("Network Statistics", color=(255, 255, 255))
+    dpg.add_separator()
+    
+    with dpg.group(horizontal=True):
+        dpg.add_text("Network Status:")
+        dpg.add_text("Not Available", tag="perf_network_status", color=(255, 255, 100))
+    
+    with dpg.group(horizontal=True):
+        dpg.add_text("CS2 Connection:")
+        dpg.add_text("Unknown", tag="perf_cs2_connection", color=(255, 255, 100))
+    
+    dpg.add_spacer(height=UI_SPACING_MEDIUM)
+    
+    # Feature Status Section
+    dpg.add_text("Feature Status", color=(255, 255, 255))
+    dpg.add_separator()
+    
+    # ESP Status
+    with dpg.group(horizontal=True):
+        dpg.add_text("ESP:")
+        dpg.add_text("Stopped", tag="perf_esp_status", color=(255, 100, 100))
+    
+    # Aimbot Status
+    with dpg.group(horizontal=True):
+        dpg.add_text("Aimbot:")
+        dpg.add_text("Stopped", tag="perf_aimbot_status", color=(255, 100, 100))
+    
+    # Triggerbot Status
+    with dpg.group(horizontal=True):
+        dpg.add_text("Triggerbot:")
+        dpg.add_text("Stopped", tag="perf_triggerbot_status", color=(255, 100, 100))
+    
+    # RCS Status
+    with dpg.group(horizontal=True):
+        dpg.add_text("RCS:")
+        dpg.add_text("Stopped", tag="perf_rcs_status", color=(255, 100, 100))
+    
+    # ACS Status
+    with dpg.group(horizontal=True):
+        dpg.add_text("ACS:")
+        dpg.add_text("Stopped", tag="perf_acs_status", color=(255, 100, 100))
+    
+    # Anti-Flash Status
+    with dpg.group(horizontal=True):
+        dpg.add_text("Anti-Flash:")
+        dpg.add_text("Stopped", tag="perf_antiflash_status", color=(255, 100, 100))
+    
+    # FOV Changer Status
+    with dpg.group(horizontal=True):
+        dpg.add_text("FOV Changer:")
+        dpg.add_text("Stopped", tag="perf_fov_status", color=(255, 100, 100))
+    
+    # Hitsound Status
+    with dpg.group(horizontal=True):
+        dpg.add_text("Hitsound:")
+        dpg.add_text("Stopped", tag="perf_hitsound_status", color=(255, 100, 100))
+    
+    # Anti-AFK Status
+    with dpg.group(horizontal=True):
+        dpg.add_text("Anti-AFK:")
+        dpg.add_text("Stopped", tag="perf_anti_afk_status", color=(255, 100, 100))
+    
+    dpg.add_spacer(height=UI_SPACING_MEDIUM)
+    
+    # Summary Section
+    dpg.add_text("Summary", color=(255, 255, 255))
+    dpg.add_separator()
+    
+    with dpg.group(horizontal=True):
+        dpg.add_text("Active Features:")
+        dpg.add_text("0", tag="perf_active_features", color=(255, 255, 255))
+    
+    with dpg.group(horizontal=True):
+        dpg.add_text("Active Threads:")
+        dpg.add_text("0", tag="perf_active_threads", color=(255, 255, 255))
+    
+    dpg.add_spacer(height=UI_SPACING_MEDIUM)
+    
+    # Controls
+    with dpg.group(horizontal=True):
+        dpg.add_button(label="Refresh", callback=lambda: update_performance_display())
+        dpg.add_checkbox(label="Auto-refresh", default_value=True, tag="perf_auto_refresh")
+
+
+def update_performance_display():
+    """
+    Update all performance metrics in the Performance sub-tab.
+    Called periodically when auto-refresh is enabled.
+    """
+    try:
+        # Performance Metrics
+        # CPU Usage
+        cpu_percent = psutil.cpu_percent(interval=0)
+        dpg.set_value("perf_cpu_usage", f"{cpu_percent:.1f}%")
+        
+        # Memory Usage
+        memory = psutil.virtual_memory()
+        memory_mb = memory.used / (1024 * 1024)
+        dpg.set_value("perf_memory_usage", f"{memory_mb:.0f} MB")
+        
+        # Disk Usage
+        disk = psutil.disk_usage('/')
+        disk_gb = disk.used / (1024 * 1024 * 1024)
+        dpg.set_value("perf_disk_usage", f"{disk_gb:.1f} GB")
+        
+        # ESP FPS
+        esp_fps = esp_overlay.get("fps", 0)
+        dpg.set_value("perf_esp_fps", str(esp_fps))
+        
+        # Network Stats (simplified - basic connectivity check)
+        try:
+            # Check if we have internet connectivity
+            import socket
+            socket.create_connection(("8.8.8.8", 53), timeout=0.1)
+            dpg.set_value("perf_network_status", "Connected")
+            dpg.configure_item("perf_network_status", color=(100, 255, 100))
+        except:
+            dpg.set_value("perf_network_status", "Disconnected")
+            dpg.configure_item("perf_network_status", color=(255, 100, 100))
+        
+        # CS2 Connection Status
+        cs2_running = is_cs2_running()
+        cs2_status = "Connected" if cs2_running else "Disconnected"
+        cs2_color = (100, 255, 100) if cs2_running else (255, 100, 100)
+        dpg.set_value("perf_cs2_connection", cs2_status)
+        dpg.configure_item("perf_cs2_connection", color=cs2_color)
+        
+        # Feature Status
+        # ESP Status
+        esp_running = esp_overlay.get("running", False)
+        esp_status = "Running" if esp_running else "Stopped"
+        esp_color = (100, 255, 100) if esp_running else (255, 100, 100)
+        dpg.set_value("perf_esp_status", esp_status)
+        dpg.configure_item("perf_esp_status", color=esp_color)
+        
+        # Aimbot Status
+        aimbot_running = aimbot_state.get("running", False)
+        aimbot_status = "Running" if aimbot_running else "Stopped"
+        aimbot_color = (100, 255, 100) if aimbot_running else (255, 100, 100)
+        dpg.set_value("perf_aimbot_status", aimbot_status)
+        dpg.configure_item("perf_aimbot_status", color=aimbot_color)
+        
+        # Triggerbot Status
+        triggerbot_running = triggerbot_state.get("running", False)
+        triggerbot_status = "Running" if triggerbot_running else "Stopped"
+        triggerbot_color = (100, 255, 100) if triggerbot_running else (255, 100, 100)
+        dpg.set_value("perf_triggerbot_status", triggerbot_status)
+        dpg.configure_item("perf_triggerbot_status", color=triggerbot_color)
+        
+        # RCS Status
+        rcs_running = rcs_state.get("running", False)
+        rcs_status = "Running" if rcs_running else "Stopped"
+        rcs_color = (100, 255, 100) if rcs_running else (255, 100, 100)
+        dpg.set_value("perf_rcs_status", rcs_status)
+        dpg.configure_item("perf_rcs_status", color=rcs_color)
+        
+        # ACS Status
+        acs_running = acs_state.get("running", False)
+        acs_status = "Running" if acs_running else "Stopped"
+        acs_color = (100, 255, 100) if acs_running else (255, 100, 100)
+        dpg.set_value("perf_acs_status", acs_status)
+        dpg.configure_item("perf_acs_status", color=acs_color)
+        
+        # Anti-Flash Status
+        antiflash_running = anti_flash_state.get("running", False)
+        antiflash_status = "Running" if antiflash_running else "Stopped"
+        antiflash_color = (100, 255, 100) if antiflash_running else (255, 100, 100)
+        dpg.set_value("perf_antiflash_status", antiflash_status)
+        dpg.configure_item("perf_antiflash_status", color=antiflash_color)
+        
+        # FOV Changer Status
+        fov_running = fov_changer_state.get("running", False)
+        fov_status = "Running" if fov_running else "Stopped"
+        fov_color = (100, 255, 100) if fov_running else (255, 100, 100)
+        dpg.set_value("perf_fov_status", fov_status)
+        dpg.configure_item("perf_fov_status", color=fov_color)
+        
+        # Hitsound Status
+        hitsound_running = hitsound_state.get("running", False)
+        hitsound_status = "Running" if hitsound_running else "Stopped"
+        hitsound_color = (100, 255, 100) if hitsound_running else (255, 100, 100)
+        dpg.set_value("perf_hitsound_status", hitsound_status)
+        dpg.configure_item("perf_hitsound_status", color=hitsound_color)
+        
+        # Anti-AFK Status
+        anti_afk_running = anti_afk_state.get("running", False)
+        anti_afk_status = "Running" if anti_afk_running else "Stopped"
+        anti_afk_color = (100, 255, 100) if anti_afk_running else (255, 100, 100)
+        dpg.set_value("perf_anti_afk_status", anti_afk_status)
+        dpg.configure_item("perf_anti_afk_status", color=anti_afk_color)
+        
+        # Summary
+        active_features = sum([
+            esp_running, aimbot_running, triggerbot_running, rcs_running,
+            acs_running, antiflash_running, fov_running, hitsound_running,
+            anti_afk_running
+        ])
+        dpg.set_value("perf_active_features", str(active_features))
+        
+        # Count active threads
+        active_threads = sum([
+            1 if esp_overlay.get("thread") and esp_overlay["thread"].is_alive() else 0,
+            1 if aimbot_state.get("thread") and aimbot_state["thread"].is_alive() else 0,
+            1 if triggerbot_state.get("thread") and triggerbot_state["thread"].is_alive() else 0,
+            1 if rcs_state.get("thread") and rcs_state["thread"].is_alive() else 0,
+            1 if acs_state.get("thread") and acs_state["thread"].is_alive() else 0,
+            1 if anti_flash_state.get("thread") and anti_flash_state["thread"].is_alive() else 0,
+            1 if fov_changer_state.get("thread") and fov_changer_state["thread"].is_alive() else 0,
+            1 if hitsound_state.get("thread") and hitsound_state["thread"].is_alive() else 0,
+            1 if anti_afk_state.get("thread") and anti_afk_state["thread"].is_alive() else 0,
+        ])
+        dpg.set_value("perf_active_threads", str(active_threads))
+        
+    except Exception as e:
+        debug_log(f"Failed to update performance display: {str(e)}", "ERROR")
+
+
 def create_offsets_tab():
     """
     Create the Offsets display tab content (legacy - kept for compatibility).
@@ -10553,6 +11222,19 @@ def create_settings_tab_cheat():
                     dpg.add_text("Select which hitsound to play")
                     dpg.add_text("Files are downloaded automatically")
                 ALL_TOOLTIP_TAGS.append("tooltip_hitsound_type")
+                
+                dpg.add_separator()
+                
+                # Anti-AFK toggle
+                dpg.add_checkbox(
+                    label="Anti-AFK",
+                    default_value=Active_Config.get("anti_afk_enabled", False),
+                    tag="chk_anti_afk_enabled",
+                    callback=on_anti_afk_toggle
+                )
+                with dpg.tooltip("chk_anti_afk_enabled", tag="tooltip_anti_afk", show=show_tips):
+                    dpg.add_text("Automatically press W,A,S,D keys to prevent AFK kick")
+                ALL_TOOLTIP_TAGS.append("tooltip_anti_afk")
             
             # General settings sub-tab
             with dpg.tab(label="General"):
@@ -10627,6 +11309,8 @@ def create_settings_tab_cheat():
             # Keybinds sub-tab
             with dpg.tab(label="Keybinds"):
                 dpg.add_text("Keybinds", color=(255, 255, 255))
+                dpg.add_separator()
+                dpg.add_text("Bind ESC key to remove a keybind.")
                 dpg.add_separator()
                 
                 # Menu toggle key button
@@ -10761,6 +11445,21 @@ def create_settings_tab_cheat():
                 with dpg.tooltip("btn_bind_rcs_toggle_cheat", tag="tooltip_rcs_toggle_key", show=show_tips):
                     dpg.add_text("Key or mouse button to toggle RCS on/off")
                 ALL_TOOLTIP_TAGS.append("tooltip_rcs_toggle_key")
+                
+                dpg.add_spacer(height=2)
+                
+                # Anti-AFK toggle key button
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Anti-AFK Toggle Key:")
+                    dpg.add_button(
+                        label=f"{Keybinds_Config.get('anti_afk_toggle_key', '').upper() or 'NONE'}",
+                        tag="btn_bind_anti_afk_toggle_cheat",
+                        callback=on_anti_afk_toggle_key_button,
+                        width=150
+                    )
+                with dpg.tooltip("btn_bind_anti_afk_toggle_cheat", tag="tooltip_anti_afk_toggle_key", show=show_tips):
+                    dpg.add_text("Key or mouse button to toggle anti-AFK on/off")
+                ALL_TOOLTIP_TAGS.append("tooltip_anti_afk_toggle_key")
 
 
 def create_main_window(title, window_type="loader"):
@@ -11004,6 +11703,7 @@ def run_window(window_type="loader"):
     run_window.aimbot_toggle_key_was_pressed = False
     run_window.head_only_toggle_key_was_pressed = False
     run_window.rcs_toggle_key_was_pressed = False
+    run_window.anti_afk_toggle_key_was_pressed = False
     
     # =============================================================================
     # MAIN RENDER LOOP
@@ -11014,6 +11714,9 @@ def run_window(window_type="loader"):
     
     # Debug terminal update counter
     terminal_update_counter = 0
+    
+    # Performance display update counter
+    perf_update_counter = 0
     
     # CS2 monitoring counter (check every ~60 frames to reduce CPU usage)
     cs2_check_counter = 0
@@ -11050,6 +11753,17 @@ def run_window(window_type="loader"):
             if terminal_update_counter >= 30:
                 update_debug_terminal()
                 terminal_update_counter = 0
+        
+        # Update performance display every 30 frames if auto-refresh is enabled and performance tab is visible
+        if window_type == "cheat":
+            try:
+                if dpg.does_item_exist("perf_auto_refresh") and dpg.get_value("perf_auto_refresh") and dpg.is_item_shown("tab_performance"):
+                    perf_update_counter += 1
+                    if perf_update_counter >= 30:
+                        update_performance_display()
+                        perf_update_counter = 0
+            except:
+                pass
         
         # Config file watcher - check for new/deleted configs every ~120 frames (~2 seconds)
         if window_type == "cheat":
@@ -11171,6 +11885,12 @@ def run_window(window_type="loader"):
                                 dpg.set_item_label("btn_bind_rcs_toggle_cheat", "NONE")
                             except:
                                 pass
+                        elif keybind_listener["target"] == "anti_afk_toggle_key":
+                            Keybinds_Config["anti_afk_toggle_key"] = "none"
+                            try:
+                                dpg.set_item_label("btn_bind_anti_afk_toggle_cheat", "NONE")
+                            except:
+                                pass
                     else:
                         # Normal key binding
                         if keybind_listener["target"] == "menu_toggle_key":
@@ -11227,6 +11947,12 @@ def run_window(window_type="loader"):
                                 dpg.set_item_label("btn_bind_rcs_toggle_cheat", key_name.upper())
                             except:
                                 pass
+                        elif keybind_listener["target"] == "anti_afk_toggle_key":
+                            Keybinds_Config["anti_afk_toggle_key"] = key_name
+                            try:
+                                dpg.set_item_label("btn_bind_anti_afk_toggle_cheat", key_name.upper())
+                            except:
+                                pass
                     
                     # Save keybinds after change
                     save_keybinds()
@@ -11240,6 +11966,7 @@ def run_window(window_type="loader"):
                     run_window.aimbot_toggle_key_was_pressed = True
                     run_window.head_only_toggle_key_was_pressed = True
                     run_window.rcs_toggle_key_was_pressed = True
+                    run_window.anti_afk_toggle_key_was_pressed = True
                     break
         
         # Handle menu toggle key for cheat window visibility
@@ -11365,6 +12092,35 @@ def run_window(window_type="loader"):
                         debug_log(f"RCS toggled: {'ON' if new_rcs_state else 'OFF'}", "INFO")
                     run_window.rcs_toggle_key_was_pressed = rcs_toggle_key_pressed
         
+        # Handle Anti-AFK toggle key
+        if window_type == "cheat" and not keybind_listener["listening"]:
+            anti_afk_toggle_key = Keybinds_Config.get("anti_afk_toggle_key", "").lower()
+            
+            # Skip if keybind is set to "none" or empty
+            if anti_afk_toggle_key and anti_afk_toggle_key != "none":
+                anti_afk_toggle_vk_code = KEY_NAME_TO_VK.get(anti_afk_toggle_key)
+                
+                if anti_afk_toggle_vk_code:
+                    anti_afk_toggle_key_pressed = win32api.GetAsyncKeyState(anti_afk_toggle_vk_code) & 0x8000
+                    if anti_afk_toggle_key_pressed and not run_window.anti_afk_toggle_key_was_pressed:
+                        # Key just pressed - toggle anti-AFK
+                        current_anti_afk_state = Active_Config.get("anti_afk_enabled", False)
+                        new_anti_afk_state = not current_anti_afk_state
+                        Active_Config["anti_afk_enabled"] = new_anti_afk_state
+                        save_settings()
+                        # Update checkbox in UI
+                        try:
+                            dpg.set_value("chk_anti_afk_enabled", new_anti_afk_state)
+                        except:
+                            pass
+                        # Start/stop the anti-AFK thread
+                        if new_anti_afk_state:
+                            start_anti_afk_thread()
+                        else:
+                            stop_anti_afk_thread()
+                        debug_log(f"Anti-AFK toggled: {'ON' if new_anti_afk_state else 'OFF'}", "INFO")
+                    run_window.anti_afk_toggle_key_was_pressed = anti_afk_toggle_key_pressed
+        
         # Exit Key handling (works in both loader and cheat windows)
         exit_key_name = Keybinds_Config.get("exit_key", "f7")
         
@@ -11482,6 +12238,9 @@ def cleanup_temp_folder():
     # Stop ACS thread if running
     stop_acs_thread()
     
+    # Stop anti-AFK thread if running
+    stop_anti_afk_thread()
+    
     try:
         if os.path.exists(TEMP_FOLDER):
             shutil.rmtree(TEMP_FOLDER)
@@ -11557,18 +12316,63 @@ def main():
     # Load keybinds from autosave.json or use defaults
     load_keybinds()
     
-    # Register cleanup function to run on exit
-    atexit.register(cleanup_temp_folder)
-    
-    debug_log("Starting loader window...", "INFO")
-    
-    # Run loader window
-    should_switch = run_window("loader")
-    
-    # If Test was clicked, run cheat window
-    if should_switch:
-        debug_log("Switching to cheat window...", "INFO")
+    if SKIP_LOADER:
+        # Set loader settings for cheat
+        loader_settings["ShowDebugTab"] = True
+        loader_settings["UseLocalOffsets"] = False
+        Active_Config["show_tooltips"] = True
+        
+        # Download sound files to temp folder
+        sound_files = [
+            (HITMARKER_SOUND_URL, "hitmarker.wav"),
+            (METALHIT_SOUND_URL, "metalhit.wav"),
+            (CRITICALHIT_SOUND_URL, "criticalhit.wav")
+        ]
+        
+        for url, filename in sound_files:
+            try:
+                filepath = os.path.join(TEMP_FOLDER, filename)
+                urllib.request.urlretrieve(url, filepath)
+                print(f"[SOUNDS] Downloaded {filename}")
+            except Exception as e:
+                print(f"[SOUNDS] Failed to download {filename}: {e}")
+        
+        # Wait for CS2 to be running
+        print("Waiting for CS2...")
+        while not is_cs2_running():
+            time.sleep(0.5)
+        
+        print("CS2 detected. Loading offsets...")
+        
+        # Load offsets from GitHub
+        if not load_and_initialize_offsets(use_local=False):
+            print("Failed to load offsets. Exiting.")
+            sys.exit(1)
+        
+        # Register cleanup function to run on exit
+        atexit.register(cleanup_temp_folder)
+        
+        if RESET_GRAPHICS:
+            pyautogui.hotkey('ctrl', 'shift', 'win', 'b')
+            time.sleep(RESET_GRAPHICS_DELAY)
+        
+        # Run cheat window
+        debug_log("Starting cheat window (skipping loader)...", "INFO")
         run_window("cheat")
+        
+    else:
+        # Register cleanup function to run on exit
+        atexit.register(cleanup_temp_folder)
+        
+        debug_log("Starting loader window...", "INFO")
+        
+        # Run loader window
+        should_switch = run_window("loader")
+        
+        # If Test was clicked, run cheat window
+        if should_switch:
+            debug_log("Switching to cheat window...", "INFO")
+            run_window("cheat")
 
 
 if __name__ == "__main__":
