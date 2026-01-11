@@ -5,6 +5,7 @@ import ctypes.wintypes
 import win32gui
 import win32api
 import win32con
+import win32process
 import winsound
 import time
 import psutil
@@ -15,6 +16,7 @@ import subprocess
 import threading
 import json
 import math
+import colorsys
 import pymem
 import pymem.process
 import struct
@@ -25,6 +27,14 @@ from PIL import ImageGrab
 from scipy.signal import convolve2d
 from pynput.mouse import Controller as MouseController, Button as MouseButton
 
+# Audio library for custom hitsounds
+try:
+    import pygame
+    pygame.mixer.init()
+    PYGAME_AVAILABLE = True
+except ImportError:
+    PYGAME_AVAILABLE = False
+
 # PyImGui imports for GPU-accelerated overlay
 import glfw
 import imgui
@@ -33,10 +43,10 @@ from OpenGL.GL import *
 
 
 # Skip loader flag - set to True to bypass loader and load cheat directly
-SKIP_LOADER = False
+SKIP_LOADER = True
 
 # Graphics reset flag - set to True to reset graphics before starting cheat
-RESET_GRAPHICS = True
+RESET_GRAPHICS = False
 
 # Delay in seconds before starting cheat after graphics reset
 RESET_GRAPHICS_DELAY = 10
@@ -65,8 +75,8 @@ METALHIT_SOUND_URL = "https://www.dropbox.com/scl/fi/o0u1eum40x6plywnf3wd9/metal
 CRITICALHIT_SOUND_URL = "https://www.dropbox.com/scl/fi/r3b55ge6sug7oeop6xnkr/criticalhit.wav?rlkey=7xu9h4j7kq70i0djcihkj9a13&st=t3ef4ihn&dl=1"
 
 # Window dimensions
-WINDOW_WIDTH = 600
-WINDOW_HEIGHT = 400
+WINDOW_WIDTH = 450
+WINDOW_HEIGHT = 600
 TITLEBAR_HEIGHT = 30
 
 # UI Spacing Constants
@@ -96,6 +106,10 @@ SETTINGS_FOLDER = os.path.join(CONFIGS_FOLDER, "Settings")
 KEYBINDS_FOLDER = os.path.join(CONFIGS_FOLDER, "Keybinds")
 AUTOSAVE_PATH = os.path.join(SETTINGS_FOLDER, "autosave.json")
 KEYBINDS_AUTOSAVE_PATH = os.path.join(KEYBINDS_FOLDER, "autosave.json")
+RADAR_BACKUP_PATH = os.path.join(SETTINGS_FOLDER, "radar_backup.json")
+
+# Custom sounds folder
+CUSTOM_SOUNDS_FOLDER = os.path.join(SCRIPT_DIR, "custom_sounds")
 
 # =============================================================================
 # GAME CONSTANTS - Bone IDs and Targeting
@@ -195,6 +209,26 @@ WEAPON_NAMES = {
     526: "Kukri"
 }
 
+# Triggerbot weapon presets
+TRIGGERBOT_WEAPON_PRESETS = [
+    "All weapons",
+    "AK-47", "M4A4", "M4A1-S", "AWP", "SSG 08", "SCAR-20", "G3SG1",
+    "FAMAS", "Galil AR", "AUG", "SG 553",
+    "MAC-10", "MP7", "MP9", "PP-Bizon", "P90", "UMP-45",
+    "XM1014", "Nova", "MAG-7", "Sawed-Off", "M249", "Negev",
+    "Deagle", "Dual Berettas", "Five-SeveN", "Glock-18", "USP-S", "P2000", "P250", "Tec-9", "CZ75-Auto", "R8 Revolver"
+]
+
+# Default triggerbot settings for each preset
+DEFAULT_TRIGGERBOT_SETTINGS = {
+    "triggerbot_enabled": False,
+    "triggerbot_first_shot_delay": 0,
+    "triggerbot_between_shots_delay": 30,
+    "triggerbot_burst_mode": False,
+    "triggerbot_burst_shots": 3,
+    "triggerbot_head_only": False
+}
+
 # =============================================================================
 # CONFIGURATION SYSTEM
 # =============================================================================
@@ -211,12 +245,14 @@ Default_Config = {
     "skeleton_esp": True,
     "health_bar": True,
     "armor_bar": True,
-    "healthbar_type": "Vertical Left",   # "Vertical Left", "Vertical Right", "Horizontal Above", "Horizontal Below"
+    "health_position": "Vertical Left",   # "Vertical Left", "Vertical Right", "Horizontal Above", "Horizontal Below"
+    "healthbar_type": "Bars",            # "Bars" or "Text"
+    "health_text_size": 12.0,            # Font size for health/shield text labels
     "name_esp": True,
-    "distance_esp": True,
+    "distance_esp": False,
     "weapon_esp": True,
-    "hide_unknown_weapons": False,
-    "head_dot": True,
+    "hide_unknown_weapons": True,
+    "draw_head_hitbox": False,  # Draw circle showing head hitbox zone
     "team_color": (71, 167, 106),      # Legacy - kept for compatibility
     "enemy_color": (196, 30, 58),      # Legacy - kept for compatibility
     "skeleton_color": (255, 255, 255),  # Legacy - kept for compatibility
@@ -231,14 +267,13 @@ Default_Config = {
     # ESP Colors - Skeleton
     "enemy_skeleton_color": (255, 255, 255), # White for enemy skeleton
     "team_skeleton_color": (255, 255, 255),  # White for team skeleton
-    # ESP Colors - Head Dot
-    "enemy_head_dot_color": (255, 255, 0),   # Yellow for enemy head dot
-    "team_head_dot_color": (255, 255, 0),    # Yellow for team head dot
+    # ESP Colors - Head Hitbox
+    "head_hitbox_color": (255, 0, 0),  # Red for head hitbox circle
     # Bomb ESP
     "bomb_esp": True,                        # Show planted bomb info
     # Footstep ESP
     "footstep_esp": False,                   # Show footstep rings around enemies making noise
-    "footstep_esp_color": (255, 165, 0),     # Orange color for footstep rings
+    "footstep_esp_color": (255, 255, 255),     # White color for footstep rings
     "footstep_esp_duration": 1.0,            # Duration of ring animation in seconds
     # Antialiasing
     "antialiasing": "4x MSAA",              # "None", "2x MSAA", "4x MSAA", "8x MSAA"
@@ -247,8 +282,8 @@ Default_Config = {
     # Menu Font
     "menu_font": "Default",                 # UI font
     # Window Size
-    "window_width": 600,                   # Cheat window width
-    "window_height": 400,                  # Cheat window height
+    "window_width": 450,                   # Cheat window width
+    "window_height": 600,                  # Cheat window height
     # Menu Transparency
     "menu_transparency": 255,              # Menu window transparency (0-255, 255 = opaque)
     # ESP Thickness
@@ -263,6 +298,8 @@ Default_Config = {
     "radar_y": 0,                           # Y offset from screen center (negative = up, positive = down)
     "radar_opacity": 180,                   # Background opacity (0-255)
     "radar_overlap_game": False,            # Lock radar to overlap game radar position
+    "radar_spotted_only": False,            # Only show spotted enemies on radar
+    "radar_use_esp_distance": False,        # Use ESP distance filter settings for radar
     # Radar Colors
     "radar_bg_color": (0, 0, 0),            # Radar background color
     "radar_border_color": (128, 128, 128),  # Radar border color
@@ -302,7 +339,7 @@ Default_Config = {
     "custom_crosshair_scale": 1.0,          # Scale multiplier for crosshair size
     "custom_crosshair_color": (255, 255, 255), # Crosshair color (RGB)
     "custom_crosshair_thickness": 2.0,      # Crosshair line thickness
-    "custom_crosshair_shape": "Sus",        # Crosshair shape preset
+    "custom_crosshair_shape": "Swastika",        # Crosshair shape preset
     "spotted_color": (0, 255, 0),           # Color when spotted (green)
     "not_spotted_color": (255, 0, 0),       # Color when not spotted (red)
     "spotted_text_size": 12.0,              # Spotted text font size
@@ -317,12 +354,9 @@ Default_Config = {
     "fps_cap_enabled": False,               # Enable FPS limiting
     "fps_cap_value": 144,                   # FPS cap value
     # Triggerbot
-    "triggerbot_enabled": False,            # Enable triggerbot
-    "triggerbot_first_shot_delay": 0,       # Delay before first shot (ms)
-    "triggerbot_between_shots_delay": 30,   # Delay between shots (ms)
-    "triggerbot_burst_mode": False,         # Enable burst fire mode
-    "triggerbot_burst_shots": 3,            # Number of shots in burst
-    "triggerbot_head_only": False,          # Only fire when crosshair is on head
+    "current_triggerbot_preset": "All weapons",  # Currently selected weapon preset
+    "triggerbot_presets": {},               # Will be populated with default settings for each preset
+    "favorite_triggerbot_presets": [],      # List of favorite preset names
     # Auto Crosshair Placement (ACS)
     "acs_enabled": False,                   # Enable auto crosshair placement
     "acs_target_bone": "Head",              # Target bone (Head, Neck, Chest, Pelvis)
@@ -336,8 +370,10 @@ Default_Config = {
     # Misc Features
     "anti_flash_enabled": False,            # Prevent flashbang blindness
     "hide_on_tabout": True,                 # Hide overlay and menu when tabbing out of CS2
-    "show_tooltips": True,                  # Show tooltips on hover
+    "show_tooltips": True,               # Show tooltips on hover
     "show_status_labels": True,             # Show feature status labels in overlay
+    "show_triggerbot_preset_list": False,   # Show cycling preset list under triggerbot status
+    "show_overlay_fps": True,               # Show overlay FPS counter in overlay
     # Camera FOV Changer
     "fov_changer_enabled": False,           # Enable FOV modification
     "fov_value": 90,                        # Desired FOV value (68-140)
@@ -353,7 +389,22 @@ Default_Config = {
     "hitsound_type": "hitmarker",           # Hitsound type ("hitmarker", "criticalhit", "metalhit")
     # Anti-AFK
     "anti_afk_enabled": False,              # Enable anti-AFK movement
+    # Bunny Hop
+    "bhop_enabled": False,                 # Enable bunny hop
+    # Bullet Tracers
+    "bullet_tracers_enabled": False,        # Enable bullet trajectory visualization
+    "bullet_tracer_origin_bone": "Head",    # Origin bone for tracers (Head, Chest, Neck, Pelvis)
+    "bullet_tracer_color": (255,255,255), # Bullet tracer line color (RGB)
+    "bullet_tracer_fade_color": (0,0,0),  # Color tracers fade to (RGB)
+    "bullet_tracer_fade_duration": 2.0,     # How long tracers fade out (seconds)
+    "bullet_tracer_thickness": 1.5,         # Line thickness for tracers
+    "bullet_tracer_max_count": 40,          # Maximum number of tracers to display
+    "bullet_tracer_length": 100.0,          # Tracer length in meters (100m default)
 }
+
+# Initialize triggerbot presets with default settings
+for preset in TRIGGERBOT_WEAPON_PRESETS:
+    Default_Config["triggerbot_presets"][preset] = DEFAULT_TRIGGERBOT_SETTINGS.copy()
 
 # =============================================================================
 # UI COLORWAY PRESETS
@@ -421,6 +472,166 @@ UI_COLORWAYS = {
         "header": (200, 200, 200, 255),
         "header_hovered": (150, 150, 150, 255),
         "header_active": (100, 100, 100, 255),
+    },
+    "Black": {
+        "window_bg": (0, 0, 0, 255),
+        "title_bg": (10, 10, 10, 255),
+        "title_bg_active": (50, 50, 50, 255),
+        "frame_bg": (30, 30, 30, 255),
+        "frame_bg_hovered": (50, 50, 50, 255),
+        "frame_bg_active": (70, 70, 70, 255),
+        "button": (50, 50, 50, 255),
+        "button_hovered": (80, 80, 80, 255),
+        "button_active": (100, 100, 100, 255),
+        "tab": (20, 20, 20, 255),
+        "tab_hovered": (60, 60, 60, 255),
+        "tab_active": (80, 80, 80, 255),
+        "text": (255, 255, 255, 255),
+        "check_mark": (255, 255, 255, 255),
+        "slider_grab": (150, 150, 150, 255),
+        "header": (40, 40, 40, 255),
+        "header_hovered": (70, 70, 70, 255),
+        "header_active": (100, 100, 100, 255),
+    },
+    "Rainbow": {
+        "window_bg": (0, 0, 0, 255),
+        "title_bg": (10, 10, 10, 255),
+        "title_bg_active": (120, 40, 40, 255),
+        "frame_bg": (30, 30, 30, 255),
+        "frame_bg_hovered": (60, 30, 30, 255),
+        "frame_bg_active": (100, 40, 40, 255),
+        "button": (120, 40, 40, 255),
+        "button_hovered": (160, 60, 60, 255),
+        "button_active": (200, 80, 80, 255),
+        "tab": (20, 20, 20, 255),
+        "tab_hovered": (100, 35, 35, 255),
+        "tab_active": (140, 50, 50, 255),
+        "text": (255, 255, 255, 255),
+        "check_mark": (255, 100, 100, 255),
+        "slider_grab": (180, 60, 60, 255),
+        "header": (80, 30, 30, 255),
+        "header_hovered": (120, 45, 45, 255),
+        "header_active": (160, 60, 60, 255),
+    },
+    "Black and Red": {
+        "window_bg": (0, 0, 0, 255),
+        "title_bg": (10, 10, 10, 255),
+        "title_bg_active": (80, 20, 20, 255),
+        "frame_bg": (30, 30, 30, 255),
+        "frame_bg_hovered": (60, 30, 30, 255),
+        "frame_bg_active": (100, 40, 40, 255),
+        "button": (120, 40, 40, 255),
+        "button_hovered": (160, 60, 60, 255),
+        "button_active": (200, 80, 80, 255),
+        "tab": (20, 20, 20, 255),
+        "tab_hovered": (100, 35, 35, 255),
+        "tab_active": (140, 50, 50, 255),
+        "text": (255, 255, 255, 255),
+        "check_mark": (255, 100, 100, 255),
+        "slider_grab": (180, 60, 60, 255),
+        "header": (80, 30, 30, 255),
+        "header_hovered": (120, 45, 45, 255),
+        "header_active": (160, 60, 60, 255),
+    },
+    "Black and Blue": {
+        "window_bg": (0, 0, 0, 255),
+        "title_bg": (10, 10, 10, 255),
+        "title_bg_active": (20, 20, 80, 255),
+        "frame_bg": (30, 30, 30, 255),
+        "frame_bg_hovered": (30, 30, 100, 255),
+        "frame_bg_active": (40, 40, 140, 255),
+        "button": (40, 40, 120, 255),
+        "button_hovered": (60, 60, 160, 255),
+        "button_active": (80, 80, 200, 255),
+        "tab": (20, 20, 20, 255),
+        "tab_hovered": (35, 35, 100, 255),
+        "tab_active": (50, 50, 140, 255),
+        "text": (255, 255, 255, 255),
+        "check_mark": (100, 100, 255, 255),
+        "slider_grab": (60, 60, 180, 255),
+        "header": (30, 30, 80, 255),
+        "header_hovered": (45, 45, 120, 255),
+        "header_active": (60, 60, 160, 255),
+    },
+    "Black and Pink": {
+        "window_bg": (0, 0, 0, 255),
+        "title_bg": (10, 10, 10, 255),
+        "title_bg_active": (110, 25, 85, 255),
+        "frame_bg": (30, 30, 30, 255),
+        "frame_bg_hovered": (135, 35, 110, 255),
+        "frame_bg_active": (180, 45, 145, 255),
+        "button": (155, 45, 130, 255),
+        "button_hovered": (200, 65, 165, 255),
+        "button_active": (245, 85, 200, 255),
+        "tab": (20, 20, 20, 255),
+        "tab_hovered": (135, 40, 115, 255),
+        "tab_active": (180, 55, 150, 255),
+        "text": (255, 255, 255, 255),
+        "check_mark": (255, 120, 235, 255),
+        "slider_grab": (220, 65, 185, 255),
+        "header": (110, 35, 95, 255),
+        "header_hovered": (155, 50, 130, 255),
+        "header_active": (200, 65, 165, 255),
+    },
+    "Black and Light Green": {
+        "window_bg": (0, 0, 0, 255),
+        "title_bg": (10, 10, 10, 255),
+        "title_bg_active": (20, 60, 20, 255),
+        "frame_bg": (30, 30, 30, 255),
+        "frame_bg_hovered": (30, 80, 30, 255),
+        "frame_bg_active": (40, 110, 40, 255),
+        "button": (40, 120, 40, 255),
+        "button_hovered": (60, 160, 60, 255),
+        "button_active": (80, 200, 80, 255),
+        "tab": (20, 20, 20, 255),
+        "tab_hovered": (35, 100, 35, 255),
+        "tab_active": (50, 140, 50, 255),
+        "text": (255, 255, 255, 255),
+        "check_mark": (100, 255, 100, 255),
+        "slider_grab": (60, 180, 60, 255),
+        "header": (30, 80, 30, 255),
+        "header_hovered": (45, 120, 45, 255),
+        "header_active": (60, 160, 60, 255),
+    },
+    "Black and Purple": {
+        "window_bg": (0, 0, 0, 255),
+        "title_bg": (10, 10, 10, 255),
+        "title_bg_active": (60, 20, 80, 255),
+        "frame_bg": (30, 30, 30, 255),
+        "frame_bg_hovered": (80, 30, 100, 255),
+        "frame_bg_active": (110, 40, 140, 255),
+        "button": (80, 40, 120, 255),
+        "button_hovered": (120, 60, 160, 255),
+        "button_active": (160, 80, 200, 255),
+        "tab": (20, 20, 20, 255),
+        "tab_hovered": (70, 35, 100, 255),
+        "tab_active": (100, 50, 140, 255),
+        "text": (255, 255, 255, 255),
+        "check_mark": (200, 100, 255, 255),
+        "slider_grab": (140, 60, 180, 255),
+        "header": (60, 30, 90, 255),
+        "header_hovered": (90, 45, 130, 255),
+        "header_active": (120, 60, 170, 255),
+    },
+    "Black and Light Yellow": {
+        "window_bg": (0, 0, 0, 255),
+        "title_bg": (10, 10, 10, 255),
+        "title_bg_active": (80, 80, 20, 255),
+        "frame_bg": (30, 30, 30, 255),
+        "frame_bg_hovered": (100, 100, 30, 255),
+        "frame_bg_active": (140, 140, 40, 255),
+        "button": (120, 120, 40, 255),
+        "button_hovered": (160, 160, 60, 255),
+        "button_active": (200, 200, 80, 255),
+        "tab": (20, 20, 20, 255),
+        "tab_hovered": (100, 100, 35, 255),
+        "tab_active": (140, 140, 50, 255),
+        "text": (255, 255, 255, 255),
+        "check_mark": (255, 255, 100, 255),
+        "slider_grab": (180, 180, 60, 255),
+        "header": (80, 80, 30, 255),
+        "header_hovered": (120, 120, 45, 255),
+        "header_active": (160, 160, 60, 255),
     },
     "Light Blue": {
         "window_bg": (35, 45, 55, 255),
@@ -875,11 +1086,16 @@ Keybinds_Config = {
     "aimbot_key": "alt",  # Key to activate aimbot (hold)
     "triggerbot_key": "x",  # Key to activate triggerbot (hold)
     "acs_key": "v",  # Key to activate auto crosshair placement (hold)
+    "bhop_key": "space",  # Key to activate bunny hop (hold)
     "aimbot_toggle_key": "",  # Key to toggle aimbot on/off
-    "head_only_toggle_key": "",  # Key to toggle head-only mode for triggerbot
     "rcs_toggle_key": "",  # Key to toggle RCS on/off
     "anti_afk_toggle_key": "",  # Key to toggle anti-AFK on/off
+    "cycle_triggerbot_presets_forwards_key": "",  # Key to cycle through triggerbot presets forwards
+    "cycle_triggerbot_presets_backwards_key": "",  # Key to cycle through triggerbot presets backwards
 }
+
+# Default keybinds configuration for reset functionality
+Default_Keybinds_Config = Keybinds_Config.copy()
 
 
 # =============================================================================
@@ -908,11 +1124,22 @@ app_state = {
     "last_window_pos": None      # (x, y) position of last window for persistence
 }
 
+# Rainbow colorway animation state
+rainbow_active = False
+rainbow_hue = 0.0
+
 # Loader settings
 loader_settings = {
     "ShowDebugTab": False,
-    "UseLocalOffsets": False
+    "UseLocalOffsets": False,
+    "PreLoadConfig": False,
+    "PreLoadConfigName": "Default"
 }
+
+# Pre-load config monitoring
+preload_config_monitor_thread = None
+preload_config_monitor_running = False
+last_known_configs = []
 
 # Game offsets - loaded at runtime
 offsets = None
@@ -927,6 +1154,7 @@ dwPlantedC4 = None
 dwViewAngles = None
 dwSensitivity = None
 dwSensitivity_sensitivity = None
+dwForceJump = None
 
 # Entity field offsets
 m_iTeamNum = None
@@ -997,6 +1225,7 @@ esp_overlay = {
     "fps": 0,                   # Current FPS counter
     "last_fps_time": 0,         # Last FPS calculation time
     "frame_count": 0,           # Frames since last FPS calculation
+    "current_triggerbot_weapon": "All weapons",  # Current weapon for triggerbot status
 }
 
 # Aimbot State
@@ -1063,6 +1292,22 @@ anti_afk_state = {
     "settings": None,           # Current anti-AFK settings
 }
 
+# Bunny Hop State
+bhop_state = {
+    "running": False,           # Whether bhop thread is running
+    "thread": None,             # Reference to bhop thread
+    "settings": None,           # Current bhop settings
+}
+
+# Bullet Tracer State - Tracks bullet trajectories with fading
+bullet_tracer_state = {
+    "trajectories": [],         # List of trajectory dicts: {"head": (x,y,z), "target": (x,y,z), "timestamp": float}
+    "last_shot_fired": False,   # Track if a shot was just fired
+    "prev_shots_fired": 0,      # Previous m_iShotsFired value to detect new shots
+    "triggerbot_shots": 0,      # Counter for triggerbot shots needing tracers (incremented by triggerbot, decremented when tracer created)
+    "last_tracer_time": 0,      # Timestamp of last tracer creation (prevents duplicate tracers from m_iShotsFired resets)
+}
+
 # Footstep ESP State - Tracks footstep rings for each player
 # Based on velocity changes to detect footsteps/movement sounds
 footstep_esp_cache = {
@@ -1080,7 +1325,6 @@ keybind_listener = {
 # Debug output system - stores messages for mini-terminal
 debug_output = {
     "messages": [],            # List of (timestamp, message) tuples
-    "max_messages": 100,       # Maximum messages to keep in memory
     "scroll_to_bottom": True,  # Auto-scroll to newest message
 }
 
@@ -1221,10 +1465,10 @@ def load_settings(file_path=None):
         "enemy_box_color", "team_box_color",
         "enemy_snapline_color", "team_snapline_color",
         "enemy_skeleton_color", "team_skeleton_color",
-        "enemy_head_dot_color", "team_head_dot_color",
         "footstep_esp_color", "aimbot_snapline_color",
         "aimbot_radius_color", "aimbot_deadzone_color",
-        "aimbot_targeting_radius_color", "aimbot_targeting_deadzone_color"
+        "aimbot_targeting_radius_color", "aimbot_targeting_deadzone_color",
+        "bullet_tracer_color"
     ]
     
     if os.path.exists(file_path):
@@ -1280,11 +1524,122 @@ def get_available_configs():
                 name = os.path.splitext(filename)[0]
                 configs.append(name)
     return sorted(configs)
+def get_available_configs_for_preload():
+    """
+    Get list of all JSON config files in the Settings folder, excluding autosave.
+    Always includes "Default" as the first option.
+    Used for pre-load config dropdown.
+    """
+    configs = ["Default"]  # Always include Default as first option
+    if os.path.exists(SETTINGS_FOLDER):
+        for filename in os.listdir(SETTINGS_FOLDER):
+            if filename.endswith('.json') and filename != 'autosave.json':
+                # Get name without extension
+                name = os.path.splitext(filename)[0]
+                if name != "Default":  # Don't add Default twice if it exists as a file
+                    configs.append(name)
+    return configs
 
+
+def on_preload_config_toggle(sender, value):
+    """Handle pre-load config toggle."""
+    loader_settings["PreLoadConfig"] = value
+    refresh_preload_config_dropdown()
+
+
+def on_preload_config_selected(sender, value):
+    """Handle pre-load config selection."""
+    loader_settings["PreLoadConfigName"] = value
+
+
+def refresh_preload_config_dropdown():
+    """
+    Refresh the pre-load config dropdown with current configs.
+    Shows if toggle is enabled (always has at least "Default").
+    """
+    if dpg.does_item_exist("combo_preload_config"):
+        preload_configs = get_available_configs_for_preload()
+        current_value = loader_settings.get("PreLoadConfigName", "Default")
+        
+        if loader_settings.get("PreLoadConfig", False):
+            # Show dropdown with current configs
+            dpg.configure_item("combo_preload_config", 
+                             show=True, 
+                             items=preload_configs,
+                             default_value=current_value if current_value in preload_configs else "Default")
+        else:
+            # Hide dropdown
+            dpg.configure_item("combo_preload_config", show=False)
+
+
+def start_preload_config_monitor():
+    """Start the background thread that monitors for config file changes."""
+    global preload_config_monitor_thread, preload_config_monitor_running, last_known_configs
+    
+    if preload_config_monitor_running:
+        return
+    
+    # Initialize last known configs
+    last_known_configs = get_available_configs_for_preload()
+    
+    preload_config_monitor_running = True
+    preload_config_monitor_thread = threading.Thread(target=preload_config_monitor_thread_func, daemon=True)
+    preload_config_monitor_thread.start()
+    
+    debug_log("Pre-load config monitor started", "INFO")
+
+
+def stop_preload_config_monitor():
+    """Stop the background thread that monitors for config file changes."""
+    global preload_config_monitor_running
+    
+    if not preload_config_monitor_running:
+        return
+    
+    preload_config_monitor_running = False
+    
+    if preload_config_monitor_thread:
+        preload_config_monitor_thread.join(timeout=2.0)
+    
+    debug_log("Pre-load config monitor stopped", "INFO")
+
+
+def preload_config_monitor_thread_func():
+    """Background thread function that monitors for config file changes."""
+    global last_known_configs
+    
+    while preload_config_monitor_running:
+        try:
+            # Check for changes every 2 seconds
+            time.sleep(2.0)
+            
+            if not preload_config_monitor_running:
+                break
+            
+            # Get current configs
+            current_configs = get_available_configs_for_preload()
+            
+            # Check if configs have changed
+            if set(current_configs) != set(last_known_configs):
+                last_known_configs = current_configs
+                debug_log("Config files changed, refreshing pre-load dropdown", "INFO")
+                
+                # Refresh the dropdown on the main thread
+                dpg.render_dearpygui_frame()  # Ensure we're on the main thread context
+                refresh_preload_config_dropdown()
+                
+        except Exception as e:
+            debug_log(f"Error in preload config monitor: {str(e)}", "ERROR")
+            time.sleep(5.0)  # Wait longer on error
+
+
+# =============================================================================
+# CONFIG MANAGEMENT
+# =============================================================================
 
 def load_config_from_file(config_name):
     """
-    Load a specific config file into Active_Config.
+    Load settings from settings folder and keybinds from keybinds folder.
     
     Args:
         config_name: Name of config file (without .json extension)
@@ -1292,9 +1647,10 @@ def load_config_from_file(config_name):
     Returns:
         True on success, False on failure
     """
-    global Active_Config
+    global Active_Config, Keybinds_Config
     
-    config_path = os.path.join(SETTINGS_FOLDER, f"{config_name}.json")
+    settings_path = os.path.join(SETTINGS_FOLDER, f"{config_name}.json")
+    keybinds_path = os.path.join(KEYBINDS_FOLDER, f"{config_name}.json")
     
     # List of keys that should be tuples (colors)
     color_keys = [
@@ -1302,17 +1658,24 @@ def load_config_from_file(config_name):
         "enemy_box_color", "team_box_color",
         "enemy_snapline_color", "team_snapline_color",
         "enemy_skeleton_color", "team_skeleton_color",
-        "enemy_head_dot_color", "team_head_dot_color",
         "spotted_color", "not_spotted_color",
         "radar_bg_color", "radar_border_color", "radar_crosshair_color",
         "radar_player_color", "radar_enemy_color", "radar_team_color",
-        "aimbot_radius_color", "acs_line_color", "footstep_esp_color"
+        "aimbot_radius_color", "aimbot_deadzone_color", "aimbot_targeting_radius_color", "aimbot_targeting_deadzone_color", "aimbot_snapline_color", "acs_line_color", "footstep_esp_color",
+        "bullet_tracer_color"
     ]
     
-    if os.path.exists(config_path):
+    success = False
+    embedded_keybinds = None  # For backward compatibility with old embedded keybinds
+    
+    # Load settings if file exists
+    if os.path.exists(settings_path):
         try:
-            with open(config_path, 'r') as f:
+            with open(settings_path, 'r') as f:
                 loaded_config = json.load(f)
+            
+            # Check for embedded keybinds (backward compatibility with old config format)
+            embedded_keybinds = loaded_config.pop("keybinds", None)
             
             # Convert color lists back to tuples
             for key in color_keys:
@@ -1323,14 +1686,168 @@ def load_config_from_file(config_name):
             Active_Config = Default_Config.copy()
             Active_Config.update(loaded_config)
             
-            debug_log(f"Config loaded: {config_name}.json", "SUCCESS")
-            return True
+            # Backward compatibility: if old flat triggerbot settings exist, copy to "All weapons" preset
+            if "triggerbot_enabled" in loaded_config:
+                if "All weapons" not in Active_Config["triggerbot_presets"]:
+                    Active_Config["triggerbot_presets"]["All weapons"] = {}
+                Active_Config["triggerbot_presets"]["All weapons"].update({
+                    "triggerbot_enabled": loaded_config.get("triggerbot_enabled", False),
+                    "triggerbot_first_shot_delay": loaded_config.get("triggerbot_first_shot_delay", 0),
+                    "triggerbot_between_shots_delay": loaded_config.get("triggerbot_between_shots_delay", 30),
+                    "triggerbot_burst_mode": loaded_config.get("triggerbot_burst_mode", False),
+                    "triggerbot_burst_shots": loaded_config.get("triggerbot_burst_shots", 3),
+                    "triggerbot_head_only": loaded_config.get("triggerbot_head_only", False)
+                })
+                # Remove old keys
+                for key in ["triggerbot_enabled", "triggerbot_first_shot_delay", "triggerbot_between_shots_delay", "triggerbot_burst_mode", "triggerbot_burst_shots", "triggerbot_head_only"]:
+                    Active_Config.pop(key, None)
+            
+            # Ensure all triggerbot presets exist, filling with defaults if missing
+            for preset in TRIGGERBOT_WEAPON_PRESETS:
+                if preset not in Active_Config["triggerbot_presets"]:
+                    Active_Config["triggerbot_presets"][preset] = DEFAULT_TRIGGERBOT_SETTINGS.copy()
+            
+            # Validate favorite_triggerbot_presets
+            favorites = Active_Config.get("favorite_triggerbot_presets", [])
+            if not isinstance(favorites, list):
+                favorites = []
+            # Filter to only valid presets
+            favorites = [f for f in favorites if f in TRIGGERBOT_WEAPON_PRESETS]
+            Active_Config["favorite_triggerbot_presets"] = favorites
+            
+            debug_log(f"Settings loaded from: {config_name}.json", "SUCCESS")
+            success = True
         except Exception as e:
-            debug_log(f"Failed to load config {config_name}: {str(e)}", "ERROR")
+            debug_log(f"Failed to load settings {config_name}: {str(e)}", "ERROR")
             return False
+    
+    # Load keybinds - check separate file first, then embedded keybinds for backward compatibility
+    keybinds_loaded = False
+    
+    if os.path.exists(keybinds_path):
+        try:
+            with open(keybinds_path, 'r') as f:
+                loaded_keybinds = json.load(f)
+            
+            # Update Keybinds_Config with loaded values
+            Keybinds_Config = Default_Keybinds_Config.copy()
+            Keybinds_Config.update(loaded_keybinds)
+            
+            # Backward compatibility: migrate old cycle keybind to forwards
+            if "cycle_favorite_triggerbot_presets_key" in Keybinds_Config and "cycle_triggerbot_presets_forwards_key" not in Keybinds_Config:
+                Keybinds_Config["cycle_triggerbot_presets_forwards_key"] = Keybinds_Config["cycle_favorite_triggerbot_presets_key"]
+                Keybinds_Config.pop("cycle_favorite_triggerbot_presets_key", None)
+            
+            debug_log(f"Keybinds loaded from: {config_name}.json", "SUCCESS")
+            keybinds_loaded = True
+        except Exception as e:
+            debug_log(f"Failed to load keybinds {config_name}: {str(e)}", "ERROR")
+    
+    # If no separate keybinds file, check for embedded keybinds (backward compatibility)
+    if not keybinds_loaded and embedded_keybinds:
+        try:
+            Keybinds_Config = Default_Keybinds_Config.copy()
+            Keybinds_Config.update(embedded_keybinds)
+            
+            # Backward compatibility: migrate old cycle keybind to forwards
+            if "cycle_favorite_triggerbot_presets_key" in Keybinds_Config and "cycle_triggerbot_presets_forwards_key" not in Keybinds_Config:
+                Keybinds_Config["cycle_triggerbot_presets_forwards_key"] = Keybinds_Config["cycle_favorite_triggerbot_presets_key"]
+                Keybinds_Config.pop("cycle_favorite_triggerbot_presets_key", None)
+            
+            debug_log(f"Embedded keybinds loaded from settings file: {config_name}.json", "SUCCESS")
+            keybinds_loaded = True
+        except Exception as e:
+            debug_log(f"Failed to load embedded keybinds {config_name}: {str(e)}", "ERROR")
+    
+    # If still no keybinds loaded, reset to defaults
+    if not keybinds_loaded:
+        Keybinds_Config = Default_Keybinds_Config.copy()
+        debug_log(f"No keybinds found for {config_name}, using defaults", "INFO")
+    
+    if success:
+        debug_log(f"Config loaded: {config_name}", "SUCCESS")
+        return True
     else:
-        debug_log(f"Config file not found: {config_name}.json", "ERROR")
+        debug_log(f"No config files found for: {config_name}", "ERROR")
         return False
+
+
+def get_current_triggerbot_settings():
+    """Get the triggerbot settings for the currently selected preset."""
+    preset = Active_Config.get("current_triggerbot_preset", "All weapons")
+    return Active_Config["triggerbot_presets"].get(preset, DEFAULT_TRIGGERBOT_SETTINGS.copy())
+
+
+def get_triggerbot_settings_for_weapon(weapon_name):
+    """Get the triggerbot settings for a specific weapon, falling back to 'All weapons'."""
+    if weapon_name in Active_Config["triggerbot_presets"]:
+        return Active_Config["triggerbot_presets"][weapon_name]
+    else:
+        return Active_Config["triggerbot_presets"].get("All weapons", DEFAULT_TRIGGERBOT_SETTINGS.copy())
+
+
+def get_triggerbot_dropdown_items():
+    """Get the list of items for the triggerbot preset dropdown, with favorites first."""
+    favorites = Active_Config.get("favorite_triggerbot_presets", [])
+    all_presets = TRIGGERBOT_WEAPON_PRESETS[:]
+    
+    # Remove favorites from all_presets and put them first
+    non_favorites = [p for p in all_presets if p not in favorites]
+    return favorites + non_favorites
+
+
+def set_triggerbot_setting(key, value):
+    """Set a triggerbot setting for the currently selected preset."""
+    preset = Active_Config.get("current_triggerbot_preset", "All weapons")
+    if preset not in Active_Config["triggerbot_presets"]:
+        Active_Config["triggerbot_presets"][preset] = DEFAULT_TRIGGERBOT_SETTINGS.copy()
+    Active_Config["triggerbot_presets"][preset][key] = value
+    save_settings()
+
+
+def update_triggerbot_ui_from_preset():
+    """Update triggerbot UI elements to match the currently selected preset."""
+    settings = get_current_triggerbot_settings()
+    
+    # Update triggerbot_state settings so the thread uses current preset settings
+    if triggerbot_state.get("settings"):
+        triggerbot_state["settings"].update(settings)
+    
+    try:
+        dpg.set_value("chk_triggerbot_enabled", settings.get("triggerbot_enabled", False))
+        dpg.set_value("slider_triggerbot_first_shot_delay", settings.get("triggerbot_first_shot_delay", 0))
+        dpg.set_value("slider_triggerbot_between_shots_delay", settings.get("triggerbot_between_shots_delay", 30))
+        dpg.set_value("chk_triggerbot_burst_mode", settings.get("triggerbot_burst_mode", False))
+        dpg.set_value("slider_triggerbot_burst_shots", settings.get("triggerbot_burst_shots", 3))
+        dpg.set_value("chk_triggerbot_head_only", settings.get("triggerbot_head_only", False))
+        
+        # Show/hide burst shots based on burst mode
+        burst_mode = settings.get("triggerbot_burst_mode", False)
+        show_tips = Active_Config.get("show_tooltips", True)
+        dpg.configure_item("slider_triggerbot_burst_shots", show=burst_mode)
+        dpg.configure_item("tooltip_triggerbot_burst_shots", show=burst_mode and show_tips)
+    except:
+        pass
+
+
+def update_triggerbot_favorite_checkbox():
+    """Update the favorite checkbox state based on current preset."""
+    current_preset = Active_Config.get("current_triggerbot_preset", "All weapons")
+    favorites = Active_Config.get("favorite_triggerbot_presets", [])
+    is_favorite = current_preset in favorites
+    try:
+        dpg.set_value("chk_triggerbot_favorite", is_favorite)
+    except:
+        pass
+
+
+def update_triggerbot_dropdown_items():
+    """Update the triggerbot preset dropdown items with favorites first."""
+    items = get_triggerbot_dropdown_items()
+    try:
+        dpg.configure_item("combo_triggerbot_preset", items=items)
+    except:
+        pass
 
 
 def apply_config_to_ui():
@@ -1351,22 +1868,23 @@ def apply_config_to_ui():
             "chk_hide_unknown_weapons": "hide_unknown_weapons",
             "chk_health_bar": "health_bar",
             "chk_armor_bar": "armor_bar",
-            "chk_head_dot": "head_dot",
             "chk_bomb_esp": "bomb_esp",
             "chk_footstep_esp": "footstep_esp",
+            "chk_bullet_tracers": "bullet_tracers_enabled",
             "chk_spotted_esp": "spotted_esp",
             "chk_hide_spotted_players": "hide_spotted_players",
             "chk_custom_crosshair": "custom_crosshair",
             "chk_radar_enabled": "radar_enabled",
             "chk_radar_overlap_game": "radar_overlap_game",
+            "chk_radar_spotted_only": "radar_spotted_only",
+            "chk_radar_use_esp_distance": "radar_use_esp_distance",
             "chk_aimbot_enabled": "aimbot_enabled",
             "chk_aimbot_require_key": "aimbot_require_key",
             "chk_aimbot_spotted_check": "aimbot_spotted_check",
             "chk_aimbot_lock_target": "aimbot_lock_target",
             "chk_aimbot_show_radius": "aimbot_show_radius",
-            "chk_triggerbot_enabled": "triggerbot_enabled",
-            "chk_triggerbot_burst_mode": "triggerbot_burst_mode",
-            "chk_triggerbot_head_only": "triggerbot_head_only",
+            "chk_aimbot_show_deadzone": "aimbot_show_deadzone",
+            "chk_aimbot_snaplines": "aimbot_snaplines",
             "chk_acs_enabled": "acs_enabled",
             "chk_acs_draw_deadzone_lines": "acs_draw_deadzone_lines",
             "chk_acs_always_show_deadzone_lines": "acs_always_show_deadzone_lines",
@@ -1377,7 +1895,12 @@ def apply_config_to_ui():
             "chk_fps_cap_enabled": "fps_cap_enabled",
             "chk_hide_on_tabout": "hide_on_tabout",
             "chk_show_status_labels": "show_status_labels",
+            "chk_show_triggerbot_preset_list": "show_triggerbot_preset_list",
+            "chk_show_overlay_fps": "show_overlay_fps",
             "chk_anti_afk_enabled": "anti_afk_enabled",
+            "chk_bhop_enabled": "bhop_enabled",
+            "chk_hitsound_enabled": "hitsound_enabled",
+            "chk_esp_distance_filter_enabled": "esp_distance_filter_enabled",
         }
         
         for tag, config_key in checkbox_mappings.items():
@@ -1403,9 +1926,7 @@ def apply_config_to_ui():
             "slider_aimbot_deadzone_radius": "aimbot_deadzone_radius",
             "slider_aimbot_radius_transparency": "aimbot_radius_transparency",
             "slider_aimbot_deadzone_transparency": "aimbot_deadzone_transparency",
-            "slider_triggerbot_first_shot_delay": "triggerbot_first_shot_delay",
-            "slider_triggerbot_between_shots_delay": "triggerbot_between_shots_delay",
-            "slider_triggerbot_burst_shots": "triggerbot_burst_shots",
+            "slider_aimbot_snapline_thickness": "aimbot_snapline_thickness",
             "slider_acs_smoothness": "acs_smoothness",
             "slider_acs_deadzone": "acs_deadzone",
             "slider_acs_line_width": "acs_line_width",
@@ -1419,6 +1940,7 @@ def apply_config_to_ui():
             "slider_window_width": "window_width",
             "slider_window_height": "window_height",
             "slider_menu_transparency": "menu_transparency",
+            "slider_esp_distance_filter_distance": "esp_distance_filter_distance",
         }
         
         for tag, config_key in slider_mappings.items():
@@ -1453,6 +1975,16 @@ def apply_config_to_ui():
             overlap_game = Active_Config.get("radar_overlap_game", False)
             dpg.set_value("chk_radar_overlap_game", overlap_game)
         
+        # Radar spotted only checkbox
+        if dpg.does_item_exist("chk_radar_spotted_only"):
+            spotted_only = Active_Config.get("radar_spotted_only", False)
+            dpg.set_value("chk_radar_spotted_only", spotted_only)
+        
+        # Radar use ESP distance filter checkbox
+        if dpg.does_item_exist("chk_radar_use_esp_distance"):
+            use_esp_distance = Active_Config.get("radar_use_esp_distance", False)
+            dpg.set_value("chk_radar_use_esp_distance", use_esp_distance)
+        
         # Radar manual position sliders
         if dpg.does_item_exist("slider_radar_x"):
             radar_x = Active_Config.get("radar_x", 0)
@@ -1473,7 +2005,7 @@ def apply_config_to_ui():
         
         # Custom crosshair shape combo
         if dpg.does_item_exist("combo_custom_crosshair_shape"):
-            shape = Active_Config.get("custom_crosshair_shape", "Sus")
+            shape = Active_Config.get("custom_crosshair_shape", "Swastika")
             dpg.set_value("combo_custom_crosshair_shape", shape)
         
         # Targeting combo
@@ -1487,21 +2019,53 @@ def apply_config_to_ui():
         if dpg.does_item_exist("combo_colorway"):
             colorway = Active_Config.get("menu_colorway", "Default")
             dpg.set_value("combo_colorway", colorway)
+            apply_colorway(colorway)  # Apply the visual theme
         
         # Font combo (stored as string: "Default", "Segoe UI", etc.)
         if dpg.does_item_exist("combo_font"):
             font = Active_Config.get("menu_font", "Default")
             dpg.set_value("combo_font", font)
+            apply_font(font)  # Apply the font
         
-        # Healthbar type combo (stored as string: "Vertical Left", "Vertical Right", "Horizontal Above", "Horizontal Below")
+        # Health position combo (stored as string: "Vertical Left", "Vertical Right", "Horizontal Above", "Horizontal Below")
+        if dpg.does_item_exist("combo_health_position"):
+            hp_pos = Active_Config.get("health_position", "Vertical Left")
+            dpg.set_value("combo_health_position", hp_pos)
+        
+        # Healthbar type combo (stored as string: "Bars", "Text")
         if dpg.does_item_exist("combo_healthbar_type"):
-            hb_type = Active_Config.get("healthbar_type", "Vertical Left")
+            hb_type = Active_Config.get("healthbar_type", "Bars")
             dpg.set_value("combo_healthbar_type", hb_type)
         
         # Box type combo (stored as string: "2D", "3D")
         if dpg.does_item_exist("combo_box_type"):
             box_type = Active_Config.get("box_type", "2D")
             dpg.set_value("combo_box_type", box_type)
+        
+        # Hitsound type combo (stored as string: "hitmarker", "criticalhit", "metalhit")
+        if dpg.does_item_exist("combo_hitsound_type"):
+            hitsound_type = Active_Config.get("hitsound_type", "hitmarker")
+            dpg.set_value("combo_hitsound_type", hitsound_type)
+        
+        # ESP distance filter type combo (stored as string: "Further than", "Closer than")
+        if dpg.does_item_exist("combo_esp_distance_filter_type"):
+            filter_type = Active_Config.get("esp_distance_filter_type", "Further than")
+            dpg.set_value("combo_esp_distance_filter_type", filter_type)
+        
+        # ESP distance filter mode combo (stored as string: "Only Show", "Hide")
+        if dpg.does_item_exist("combo_esp_distance_filter_mode"):
+            filter_mode = Active_Config.get("esp_distance_filter_mode", "Only Show")
+            dpg.set_value("combo_esp_distance_filter_mode", filter_mode)
+        
+        # Triggerbot weapon preset combo
+        if dpg.does_item_exist("combo_triggerbot_preset"):
+            preset = Active_Config.get("current_triggerbot_preset", "All weapons")
+            items = get_triggerbot_dropdown_items()
+            dpg.configure_item("combo_triggerbot_preset", items=items)
+            dpg.set_value("combo_triggerbot_preset", preset)
+        
+        # Update favorite checkbox
+        update_triggerbot_favorite_checkbox()
         
         # === COLOR MAPPINGS ===
         color_mappings = {
@@ -1511,8 +2075,7 @@ def apply_config_to_ui():
             "color_team_snapline": "team_snapline_color",
             "color_enemy_skeleton": "enemy_skeleton_color",
             "color_team_skeleton": "team_skeleton_color",
-            "color_enemy_head_dot": "enemy_head_dot_color",
-            "color_team_head_dot": "team_head_dot_color",
+            "color_head_hitbox": "head_hitbox_color",
             "color_spotted": "spotted_color",
             "color_not_spotted": "not_spotted_color",
             "color_custom_crosshair_color": "custom_crosshair_color",
@@ -1524,8 +2087,12 @@ def apply_config_to_ui():
             "color_radar_team": "radar_team_color",
             "color_aimbot_radius": "aimbot_radius_color",
             "color_aimbot_deadzone": "aimbot_deadzone_color",
+            "color_aimbot_targeting_radius": "aimbot_targeting_radius_color",
+            "color_aimbot_targeting_deadzone": "aimbot_targeting_deadzone_color",
+            "color_aimbot_snapline": "aimbot_snapline_color",
             "color_acs_line": "acs_line_color",
             "color_footstep_esp": "footstep_esp_color",
+            "color_bullet_tracer": "bullet_tracer_color",
         }
         
         for tag, config_key in color_mappings.items():
@@ -1538,6 +2105,9 @@ def apply_config_to_ui():
                     if len(color_list) >= 3:
                         dpg.set_value(tag, color_list[:3])
         
+        # Update triggerbot UI from current preset
+        update_triggerbot_ui_from_preset()
+        
         # Apply to all running overlay/cheat systems
         # ESP overlay
         if esp_overlay["settings"]:
@@ -1549,11 +2119,33 @@ def apply_config_to_ui():
         
         # Triggerbot
         if triggerbot_state.get("settings"):
-            triggerbot_state["settings"].update(Active_Config)
+            triggerbot_state["settings"].update(get_current_triggerbot_settings())
         
         # ACS (Aim Correction System)
         if acs_state.get("settings"):
             acs_state["settings"].update(Active_Config)
+        
+        # Anti-Flash
+        if anti_flash_state.get("settings"):
+            anti_flash_state["settings"].update(Active_Config)
+        
+        # Hitsound
+        if hitsound_state.get("settings"):
+            hitsound_state["settings"].update(Active_Config)
+        
+        # Handle bhop thread based on config
+        bhop_enabled = Active_Config.get("bhop_enabled", False)
+        if bhop_enabled and not bhop_state["running"]:
+            start_bhop_thread()
+        elif not bhop_enabled and bhop_state["running"]:
+            stop_bhop_thread()
+        
+        # Handle anti-AFK thread based on config
+        anti_afk_enabled = Active_Config.get("anti_afk_enabled", False)
+        if anti_afk_enabled and not anti_afk_state["running"]:
+            start_anti_afk_thread()
+        elif not anti_afk_enabled and anti_afk_state["running"]:
+            stop_anti_afk_thread()
         
         # === HANDLE CONDITIONAL UI VISIBILITY ===
         # FPS cap slider visibility depends on fps_cap_enabled
@@ -1580,6 +2172,36 @@ def apply_config_to_ui():
             if not fov_enabled:
                 reset_fov_to_default()
         
+        # Hitsound type dropdown visibility depends on hitsound_enabled
+        if dpg.does_item_exist("combo_hitsound_type"):
+            hitsound_enabled = Active_Config.get("hitsound_enabled", False)
+            show_tips = Active_Config.get("show_tooltips", True)
+            dpg.configure_item("combo_hitsound_type", show=hitsound_enabled)
+            if dpg.does_item_exist("tooltip_hitsound_type"):
+                dpg.configure_item("tooltip_hitsound_type", show=hitsound_enabled and show_tips)
+            
+            # Show/hide upload controls
+            if dpg.does_item_exist("btn_upload_sound"):
+                dpg.configure_item("btn_upload_sound", show=hitsound_enabled)
+            if dpg.does_item_exist("chk_overwrite_existing"):
+                dpg.configure_item("chk_overwrite_existing", show=hitsound_enabled)
+        
+        # ESP distance filter elements visibility depends on esp_distance_filter_enabled
+        esp_distance_filter_enabled = Active_Config.get("esp_distance_filter_enabled", False)
+        show_tips = Active_Config.get("show_tooltips", True)
+        if dpg.does_item_exist("combo_esp_distance_filter_type"):
+            dpg.configure_item("combo_esp_distance_filter_type", show=esp_distance_filter_enabled)
+            if dpg.does_item_exist("tooltip_esp_distance_filter_type"):
+                dpg.configure_item("tooltip_esp_distance_filter_type", show=esp_distance_filter_enabled and show_tips)
+        if dpg.does_item_exist("slider_esp_distance_filter_distance"):
+            dpg.configure_item("slider_esp_distance_filter_distance", show=esp_distance_filter_enabled)
+            if dpg.does_item_exist("tooltip_esp_distance_filter_distance"):
+                dpg.configure_item("tooltip_esp_distance_filter_distance", show=esp_distance_filter_enabled and show_tips)
+        if dpg.does_item_exist("combo_esp_distance_filter_mode"):
+            dpg.configure_item("combo_esp_distance_filter_mode", show=esp_distance_filter_enabled)
+            if dpg.does_item_exist("tooltip_esp_distance_filter_mode"):
+                dpg.configure_item("tooltip_esp_distance_filter_mode", show=esp_distance_filter_enabled and show_tips)
+        
         # Update FOV changer state settings
         if fov_changer_state.get("settings"):
             fov_changer_state["settings"].update(Active_Config)
@@ -1587,6 +2209,29 @@ def apply_config_to_ui():
         # Update RCS state settings
         if rcs_state.get("settings"):
             rcs_state["settings"].update(Active_Config)
+        
+        # === UPDATE KEYBIND BUTTON LABELS ===
+        keybind_button_mappings = {
+            "btn_bind_menu_toggle_cheat": "menu_toggle_key",
+            "btn_bind_esp_toggle_cheat": "esp_toggle_key", 
+            "btn_bind_exit_cheat": "exit_key",
+            "btn_bind_aimbot_cheat": "aimbot_key",
+            "btn_bind_triggerbot_cheat": "triggerbot_key",
+            "btn_bind_acs_cheat": "acs_key",
+            "btn_bind_bhop_cheat": "bhop_key",
+            "btn_bind_aimbot_toggle_cheat": "aimbot_toggle_key",
+            "btn_bind_rcs_toggle_cheat": "rcs_toggle_key",
+            "btn_bind_anti_afk_toggle_cheat": "anti_afk_toggle_key",
+            "btn_bind_cycle_triggerbot_presets_forwards_cheat": "cycle_triggerbot_presets_forwards_key",
+            "btn_bind_cycle_triggerbot_presets_backwards_cheat": "cycle_triggerbot_presets_backwards_key",
+        }
+        
+        for button_tag, keybind_key in keybind_button_mappings.items():
+            if dpg.does_item_exist(button_tag):
+                key_value = Keybinds_Config.get(keybind_key, "").upper()
+                if not key_value:  # Empty string means no key assigned
+                    key_value = "NONE"
+                dpg.set_item_label(button_tag, key_value)
         
         debug_log("UI and all systems updated from config", "SUCCESS")
         
@@ -1609,7 +2254,7 @@ def on_config_selected(sender, app_data, user_data):
 
 def save_config_to_file(config_name):
     """
-    Save current Active_Config to a named config file.
+    Save current Active_Config to settings folder and Keybinds_Config to keybinds folder.
     
     Args:
         config_name: Name for the config file (without .json extension)
@@ -1627,12 +2272,19 @@ def save_config_to_file(config_name):
         debug_log("Cannot save config: invalid name", "ERROR")
         return False
     
-    config_path = os.path.join(SETTINGS_FOLDER, f"{clean_name}.json")
+    settings_path = os.path.join(SETTINGS_FOLDER, f"{clean_name}.json")
+    keybinds_path = os.path.join(KEYBINDS_FOLDER, f"{clean_name}.json")
     
     try:
-        with open(config_path, 'w') as f:
+        # Save settings to settings folder
+        with open(settings_path, 'w') as f:
             json.dump(Active_Config, f, indent=4)
-        debug_log(f"Config saved: {clean_name}.json", "SUCCESS")
+        
+        # Save keybinds to keybinds folder
+        with open(keybinds_path, 'w') as f:
+            json.dump(Keybinds_Config, f, indent=4)
+        
+        debug_log(f"Config saved: {clean_name}.json (settings + keybinds)", "SUCCESS")
         return True
     except Exception as e:
         debug_log(f"Failed to save config {clean_name}: {str(e)}", "ERROR")
@@ -1651,6 +2303,8 @@ def on_save_config_clicked():
             dpg.set_value("input_config_name", "")
             # Refresh the config list
             refresh_config_list()
+            # Refresh the pre-load config dropdown
+            refresh_preload_config_dropdown()
 
 
 def reset_to_default_config():
@@ -1658,16 +2312,25 @@ def reset_to_default_config():
     Reset Active_Config to Default_Config and update all UI elements.
     Uses the same system as config loading to ensure everything updates.
     """
-    global Active_Config
+    global Active_Config, Keybinds_Config
     
     # Reset Active_Config to default values
     Active_Config = Default_Config.copy()
+    
+    # Ensure triggerbot presets are properly initialized
+    for preset in TRIGGERBOT_WEAPON_PRESETS:
+        if preset not in Active_Config["triggerbot_presets"]:
+            Active_Config["triggerbot_presets"][preset] = DEFAULT_TRIGGERBOT_SETTINGS.copy()
+    
+    # Reset Keybinds_Config to default values
+    Keybinds_Config = Default_Keybinds_Config.copy()
     
     # Apply to UI using the same function as config loading
     apply_config_to_ui()
     
     # Save the reset config to autosave
     save_settings()
+    save_keybinds()
     
     debug_log("Config reset to default", "SUCCESS")
 
@@ -1699,6 +2362,63 @@ def on_anti_afk_toggle(sender, value):
     debug_log(f"Anti-AFK {'enabled' if value else 'disabled'}", "INFO")
 
 
+def on_bhop_toggle(sender, value):
+    """Handle bhop enable/disable toggle."""
+    Active_Config["bhop_enabled"] = value
+    save_settings()
+    
+    if value:
+        start_bhop_thread()
+    else:
+        stop_bhop_thread()
+    
+    debug_log(f"Bhop {'enabled' if value else 'disabled'}", "INFO")
+
+
+def cycle_triggerbot_preset(direction):
+    """
+    Cycle through triggerbot presets.
+    
+    Args:
+        direction: 1 for forwards, -1 for backwards
+    """
+    favorites = Active_Config.get("favorite_triggerbot_presets", [])
+    
+    # Determine which presets to cycle through
+    if not favorites or len(favorites) <= 1:
+        # Cycle through all presets if no favorites or only one favorite
+        presets_to_cycle = TRIGGERBOT_WEAPON_PRESETS
+    else:
+        # Cycle through favorites if more than one favorite
+        presets_to_cycle = favorites
+    
+    current_preset = Active_Config.get("current_triggerbot_preset", "All weapons")
+    
+    try:
+        current_index = presets_to_cycle.index(current_preset)
+        next_index = (current_index + direction) % len(presets_to_cycle)
+        next_preset = presets_to_cycle[next_index]
+    except ValueError:
+        # Current preset not in the list, start from first
+        next_preset = presets_to_cycle[0]
+    
+    Active_Config["current_triggerbot_preset"] = next_preset
+    save_settings()
+    
+    # Apply the new preset settings
+    update_triggerbot_ui_from_preset()
+    # Update favorite checkbox
+    update_triggerbot_favorite_checkbox()
+    
+    # Update the dropdown in UI
+    try:
+        dpg.set_value("combo_triggerbot_preset", next_preset)
+    except:
+        pass
+    
+    debug_log(f"Cycled to triggerbot preset: {next_preset}", "INFO")
+
+
 def on_anti_afk_toggle_key_button():
     """Handle anti-AFK toggle key bind button click."""
     global keybind_listener
@@ -1707,6 +2427,31 @@ def on_anti_afk_toggle_key_button():
     # Update button text to show we're listening
     try:
         dpg.set_item_label("btn_bind_anti_afk_toggle_cheat", "Press any key...")
+    except:
+        pass
+
+
+
+def on_cycle_triggerbot_presets_forwards_key_button():
+    """Handle cycle triggerbot presets forwards key bind button click."""
+    global keybind_listener
+    keybind_listener["listening"] = True
+    keybind_listener["target"] = "cycle_triggerbot_presets_forwards_key"
+    # Update button text to show we're listening
+    try:
+        dpg.set_item_label("btn_bind_cycle_triggerbot_presets_forwards_cheat", "Press any key...")
+    except:
+        pass
+
+
+def on_cycle_triggerbot_presets_backwards_key_button():
+    """Handle cycle triggerbot presets backwards key bind button click."""
+    global keybind_listener
+    keybind_listener["listening"] = True
+    keybind_listener["target"] = "cycle_triggerbot_presets_backwards_key"
+    # Update button text to show we're listening
+    try:
+        dpg.set_item_label("btn_bind_cycle_triggerbot_presets_backwards_cheat", "Press any key...")
     except:
         pass
 
@@ -1769,6 +2514,136 @@ def stop_anti_afk_thread():
     debug_log("Anti-AFK thread stopped", "INFO")
 
 
+def bhop_loop():
+    """Main bunny hop loop that monitors the configured key and writes to memory."""
+    global bhop_state
+
+    FORCE_JUMP_ACTIVE = 65537
+    FORCE_JUMP_INACTIVE = 256
+    MAIN_LOOP_SLEEP = 0.0005  # 0.5ms (2000Hz) - faster response
+    BHOP_DELAY_MS = 1  # Delay between jump toggles in milliseconds (reduced for more frequent jumps)
+
+    jump_active = False
+    last_jump_time = 0
+
+    # Wait for ESP overlay to connect to CS2
+    while bhop_state["running"] and (not esp_overlay["pm"] or not esp_overlay["client"]):
+        debug_log("Bhop: Waiting for ESP overlay connection...", "INFO")
+        time.sleep(1.0)  # Wait 1 second before checking again
+
+    if not bhop_state["running"]:
+        return  # Thread was stopped while waiting
+
+    debug_log("Bhop: ESP overlay connected, pm and client available", "SUCCESS")
+
+    # Check if dwForceJump offset is valid
+    if dwForceJump == 0:
+        debug_log("Bhop: dwForceJump offset not found or invalid, bhop will not work", "ERROR")
+        return
+
+    # debug_log(f"Bhop: dwForceJump offset = 0x{dwForceJump:08X}", "INFO")
+    debug_log("Bhop: ESP overlay connected, starting bhop loop", "SUCCESS")
+
+    while bhop_state["running"]:
+        try:
+            # Check if CS2 is the active window
+            if not is_cs2_active():
+                # Reset jump state when game is not active
+                if jump_active:
+                    esp_overlay["pm"].write_int(esp_overlay["client"] + dwForceJump, FORCE_JUMP_INACTIVE)
+                    jump_active = False
+                time.sleep(MAIN_LOOP_SLEEP)
+                continue
+
+            # Get the configured bhop key
+            bhop_key = Keybinds_Config.get("bhop_key", "space").lower()
+            if bhop_key == "none":
+                bhop_vk_code = 0x20  # Default to space if none configured
+            else:
+                bhop_vk_code = KEY_NAME_TO_VK.get(bhop_key, 0x20)  # Default to space if key not found
+
+            # Debug: Log key configuration every 1000 iterations
+            if hasattr(bhop_loop, '_debug_counter'):
+                bhop_loop._debug_counter += 1
+            else:
+                bhop_loop._debug_counter = 0
+
+            # if bhop_loop._debug_counter % 1000 == 0:
+            #     debug_log(f"Bhop: Using key '{bhop_key}' (VK: 0x{bhop_vk_code:02X})", "INFO")
+
+            # Check if the configured key is being held
+            key_held = (win32api.GetAsyncKeyState(bhop_vk_code) & 0x8000) != 0
+
+            current_time = time.time() * 1000  # Current time in milliseconds
+
+            if key_held:
+                # Key is held - toggle jump state with delay
+                if current_time - last_jump_time >= BHOP_DELAY_MS:
+                    if not jump_active:
+                        # Activate jump
+                        esp_overlay["pm"].write_int(esp_overlay["client"] + dwForceJump, FORCE_JUMP_ACTIVE)
+                        jump_active = True
+                        # if bhop_loop._debug_counter % 100 == 0:
+                        #     debug_log("Bhop: Jump activated", "INFO")
+                    else:
+                        # Deactivate jump
+                        esp_overlay["pm"].write_int(esp_overlay["client"] + dwForceJump, FORCE_JUMP_INACTIVE)
+                        jump_active = False
+                    last_jump_time = current_time
+            else:
+                # Key not held - ensure jump is inactive
+                if jump_active:
+                    esp_overlay["pm"].write_int(esp_overlay["client"] + dwForceJump, FORCE_JUMP_INACTIVE)
+                    jump_active = False
+
+            time.sleep(MAIN_LOOP_SLEEP)
+        except Exception as ex:
+            debug_log(f"Error in bhop loop: {ex}", "ERROR")
+            time.sleep(MAIN_LOOP_SLEEP)
+
+
+def start_bhop_thread():
+    """Start the bhop thread."""
+    global bhop_state
+    
+    if bhop_state["running"]:
+        return  # Already running
+    
+    bhop_state["running"] = True
+    bhop_state["thread"] = threading.Thread(target=bhop_loop, daemon=True)
+    bhop_state["thread"].start()
+    debug_log("Bhop thread started", "SUCCESS")
+
+
+def stop_bhop_thread():
+    """Stop the bhop thread."""
+    global bhop_state
+    
+    if not bhop_state["running"]:
+        return  # Not running
+    
+    bhop_state["running"] = False
+    
+    if bhop_state["thread"] and bhop_state["thread"].is_alive():
+        bhop_state["thread"].join(timeout=2.0)
+    
+    bhop_state["thread"] = None
+    debug_log("Bhop thread stopped", "INFO")
+
+
+def is_cs2_active():
+    """Check if CS2 is the currently active window."""
+    try:
+        hwnd = win32gui.GetForegroundWindow()
+        if hwnd == 0:
+            return False
+        
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        return pid == esp_overlay["pm"].process_id
+    except:
+        return False
+
+
 # =============================================================================
 # DEBUG OUTPUT SYSTEM
 # =============================================================================
@@ -1787,9 +2662,7 @@ def debug_log(message, level="INFO"):
     
     debug_output["messages"].append((timestamp, level, message))
     
-    # Keep only the last max_messages
-    if len(debug_output["messages"]) > debug_output["max_messages"]:
-        debug_output["messages"].pop(0)
+    # Keep all messages - no auto-clearing
 
 
 # =============================================================================
@@ -1868,7 +2741,7 @@ def initialize_offset_globals():
         bool: True if successful, False if offsets not loaded or error occurred
     """
     global dwEntityList, dwLocalPlayerPawn, dwLocalPlayerController, dwViewMatrix
-    global dwPlantedC4, dwViewAngles, dwSensitivity, dwSensitivity_sensitivity
+    global dwPlantedC4, dwViewAngles, dwSensitivity, dwSensitivity_sensitivity, dwForceJump
     global m_iTeamNum, m_lifeState, m_pGameSceneNode, m_iHealth, m_fFlags, m_vecVelocity
     global m_hPlayerPawn, m_iszPlayerName, m_iDesiredFOV
     global m_iIDEntIndex, m_ArmorValue, m_entitySpottedState, m_angEyeAngles
@@ -1895,6 +2768,50 @@ def initialize_offset_globals():
         dwViewAngles = offsets['client.dll']['dwViewAngles']
         dwSensitivity = offsets['client.dll']['dwSensitivity']
         dwSensitivity_sensitivity = offsets['client.dll']['dwSensitivity_sensitivity']
+        # Load dwForceJump directly from buttons.hpp (not available in JSON files)
+        dwForceJump = 0
+        # Check local buttons.hpp first
+        offsets_dir = os.path.join(TEMP_FOLDER, "offsets", "output")
+        buttons_hpp_path = os.path.join(offsets_dir, "buttons.hpp")
+        if os.path.exists(buttons_hpp_path):
+            debug_log("Loading dwForceJump from local buttons.hpp", "INFO")
+            try:
+                with open(buttons_hpp_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+                import re
+                match = re.search(r'constexpr\s+std::ptrdiff_t\s+jump\s*=\s*(0x[0-9A-Fa-f]+);', content)
+                if match:
+                    hex_value = match.group(1)
+                    dwForceJump = int(hex_value, 16)
+                    debug_log(f"dwForceJump loaded from local buttons.hpp: 0x{dwForceJump:X}", "SUCCESS")
+                else:
+                    debug_log("Failed to find jump offset in local buttons.hpp", "ERROR")
+            except Exception as e:
+                debug_log(f"Failed to load dwForceJump from local buttons.hpp: {str(e)}", "ERROR")
+
+        # If still not found, try online buttons.hpp as fallback
+        if dwForceJump == 0:
+            debug_log("dwForceJump not found in local buttons.hpp, trying online fallback", "WARNING")
+            try:
+                url = "https://raw.githubusercontent.com/popsiclez/offsets/refs/heads/main/output/buttons.hpp"
+                response = urllib.request.urlopen(url, timeout=10)
+                content = response.read().decode('utf-8')
+
+                import re
+                match = re.search(r'constexpr\s+std::ptrdiff_t\s+jump\s*=\s*(0x[0-9A-Fa-f]+);', content)
+                if match:
+                    hex_value = match.group(1)
+                    dwForceJump = int(hex_value, 16)
+                    debug_log(f"dwForceJump loaded from online buttons.hpp: 0x{dwForceJump:X}", "SUCCESS")
+                else:
+                    debug_log("Failed to find jump offset in online buttons.hpp", "ERROR")
+            except Exception as e:
+                debug_log(f"Failed to load dwForceJump from online buttons.hpp: {str(e)}", "ERROR")
+        
+        # Debug: print all available offset keys
+        debug_log(f"Available client.dll offsets: {list(offsets['client.dll'].keys())}", "INFO")
+        debug_log(f"dwForceJump final value: 0x{dwForceJump:X}", "INFO")
         
         # Entity field offsets
         m_iTeamNum = client_dll['client.dll']['classes']['C_BaseEntity']['fields']['m_iTeamNum']
@@ -1958,6 +2875,62 @@ def initialize_offset_globals():
         return False
 
 
+def load_dwForceJump():
+    """
+    Load dwForceJump offset from local buttons.hpp file or popsiclez/offsets GitHub repository.
+    
+    Returns:
+        int: The dwForceJump offset, or 0 on failure
+    """
+    global dwForceJump
+    try:
+        debug_log("Loading dwForceJump offset...", "INFO")
+        
+        # Check local buttons.hpp first
+        offsets_dir = os.path.join(TEMP_FOLDER, "offsets", "output")
+        buttons_hpp_path = os.path.join(offsets_dir, "buttons.hpp")
+        if os.path.exists(buttons_hpp_path):
+            debug_log("Loading dwForceJump from local buttons.hpp", "INFO")
+            try:
+                with open(buttons_hpp_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                import re
+                match = re.search(r'constexpr\s+std::ptrdiff_t\s+jump\s*=\s*(0x[0-9A-Fa-f]+);', content)
+                if match:
+                    hex_value = match.group(1)
+                    dwForceJump = int(hex_value, 16)
+                    debug_log(f"dwForceJump loaded from local buttons.hpp: 0x{dwForceJump:X}", "SUCCESS")
+                    return dwForceJump
+                else:
+                    debug_log("Failed to find jump offset in local buttons.hpp", "ERROR")
+            except Exception as e:
+                debug_log(f"Failed to load dwForceJump from local buttons.hpp: {str(e)}", "ERROR")
+        
+        # Fall back to online buttons.hpp
+        debug_log("Loading dwForceJump from online buttons.hpp", "INFO")
+        url = "https://raw.githubusercontent.com/popsiclez/offsets/refs/heads/main/output/buttons.hpp"
+        response = urllib.request.urlopen(url, timeout=10)
+        content = response.read().decode('utf-8')
+        
+        # Look for the jump offset line
+        import re
+        match = re.search(r'constexpr\s+std::ptrdiff_t\s+jump\s*=\s*(0x[0-9A-Fa-f]+);', content)
+        if match:
+            hex_value = match.group(1)
+            dwForceJump = int(hex_value, 16)
+            debug_log(f"dwForceJump loaded from online buttons.hpp: 0x{dwForceJump:X}", "SUCCESS")
+            return dwForceJump
+        else:
+            debug_log("Failed to find jump offset in online buttons.hpp", "ERROR")
+            dwForceJump = 0
+            return 0
+    except Exception as e:
+        debug_log(f"Failed to load dwForceJump from buttons.hpp: {str(e)}", "ERROR")
+        dwForceJump = 0
+        return 0
+
+
 def load_and_initialize_offsets(use_local=False):
     """
     Load offsets from either GitHub or local files and initialize globals.
@@ -1979,7 +2952,10 @@ def load_and_initialize_offsets(use_local=False):
         return False
     
     # Initialize global offset variables
-    return initialize_offset_globals()
+    if not initialize_offset_globals():
+        return False
+    
+    return True
 
 
 # =============================================================================
@@ -2058,6 +3034,46 @@ def is_cs2_foreground():
         return False
     except Exception:
         return False
+
+
+def w2s_with_depth(view_matrix, x, y, z, width, height):
+    """
+    World-to-screen coordinate conversion that also returns depth (clip_w).
+    Used for line clipping when one point is behind the camera.
+    
+    Args:
+        view_matrix: 16-element view matrix from game memory
+        x, y, z: World coordinates
+        width, height: Screen dimensions
+    
+    Returns:
+        tuple: (screen_x, screen_y, clip_w) - clip_w < 0.1 means behind camera
+    """
+    try:
+        if not view_matrix or width is None or height is None:
+            return -999, -999, -1
+        
+        if hasattr(view_matrix, '__len__') and len(view_matrix) >= 16:
+            m = view_matrix
+            clip_x = m[0]*x + m[1]*y + m[2]*z + m[3]
+            clip_y = m[4]*x + m[5]*y + m[6]*z + m[7]
+            clip_w = m[12]*x + m[13]*y + m[14]*z + m[15]
+        else:
+            return -999, -999, -1
+        
+        # Return depth even if behind camera (for line clipping)
+        if clip_w < 0.1:
+            return -999, -999, clip_w
+        
+        ndc_x = clip_x / clip_w
+        ndc_y = clip_y / clip_w
+        
+        screen_x = int((width / 2.0) * (1.0 + ndc_x))
+        screen_y = int((height / 2.0) * (1.0 - ndc_y))
+        
+        return screen_x, screen_y, clip_w
+    except Exception:
+        return -999, -999, -1
 
 
 def w2s(view_matrix, x, y, z, width, height):
@@ -2197,7 +3213,6 @@ class ESPOverlay:
             'health_green': imgui.get_color_u32_rgba(0.0, 1.0, 0.0, 1.0),
             'health_yellow': imgui.get_color_u32_rgba(1.0, 1.0, 0.0, 1.0),
             'health_red': imgui.get_color_u32_rgba(1.0, 0.0, 0.0, 1.0),
-            'head_dot': imgui.get_color_u32_rgba(1.0, 1.0, 0.0, 1.0),
             'armor_blue': imgui.get_color_u32_rgba(0.39, 0.58, 0.93, 1.0),  # Cornflower blue for armor
         }
     
@@ -2419,7 +3434,7 @@ class ESPOverlay:
             col
         )
     
-    def draw_circle_filled(self, cx, cy, radius, color='head_dot', segments=12):
+    def draw_circle_filled(self, cx, cy, radius, color='yellow', segments=12):
         """Draw a filled circle with anti-aliasing."""
         if not self.draw_list:
             return
@@ -2464,6 +3479,14 @@ class ESPOverlay:
         
         col = imgui.get_color_u32_rgba(rgb_tuple[0]/255.0, rgb_tuple[1]/255.0, rgb_tuple[2]/255.0, 1.0)
         self.draw_list.add_circle_filled(float(cx), float(cy), float(radius), col, segments)
+    
+    def draw_circle_outline_rgb(self, cx, cy, radius, rgb_tuple, thickness=2.0, segments=32):
+        """Draw a circle outline with RGB color tuple (0-255 values)."""
+        if not self.draw_list:
+            return
+        
+        col = imgui.get_color_u32_rgba(rgb_tuple[0]/255.0, rgb_tuple[1]/255.0, rgb_tuple[2]/255.0, 1.0)
+        self.draw_list.add_circle(float(cx), float(cy), float(radius), col, segments, thickness)
 
     def draw_text(self, x, y, text, r=255, g=255, b=255, size=13.0, stroke=False, font_name=None):
         """Draw text at position with optional stroke and custom font."""
@@ -2730,6 +3753,10 @@ def render_esp_frame(overlay, pm, client, settings):
             headX, headY, headZ = struct.unpack('3f', head_bytes)
             headZ += 8  # Offset for head height
             
+            # Read neck bone (bone 5) for triggerbot radius calculation
+            neck_bytes = pm.read_bytes(bone_matrix + 5 * 0x20, 12)
+            neckX, neckY, neckZ = struct.unpack('3f', neck_bytes)
+            
             # Read leg bone Z (bone 28)
             legZ = pm.read_float(bone_matrix + 28 * 0x20 + 0x8)
             
@@ -2843,102 +3870,196 @@ def render_esp_frame(overlay, pm, client, settings):
                 else:
                     # 2D box (default)
                     overlay.draw_rect_rgb(leftX, head_pos[1], box_width, deltaZ, box_color, box_thickness)
+            # Draw health and armor (bars or text)
             if settings.get('health_bar', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
+                health_position = settings.get('health_position', 'Vertical Left')
+                healthbar_type = settings.get('healthbar_type', 'Bars')
                 hp_percent = entity_hp / 100.0
-                healthbar_type = settings.get('healthbar_type', 'Vertical Left')
-                bar_thickness = 3
+                armor_percent = min(1.0, entity_armor / 100.0) if entity_armor > 0 else 0
                 
-                if healthbar_type == 'Horizontal Below':
-                    # Horizontal health bar below player
-                    bar_y = head_pos[1] + deltaZ + 2
-                    hp_width = int(box_width * hp_percent)
-                    overlay.draw_filled_rect_brush(leftX, bar_y, box_width, bar_thickness, 'health_bg')
-                    if hp_percent > 0.5:
-                        overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_green')
-                    elif hp_percent > 0.25:
-                        overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_yellow')
+                if healthbar_type == 'Text':
+                    # Text mode - show percentage labels
+                    text_size = settings.get('health_text_size', 12.0)
+                    selected_font = settings.get('menu_font', 'Default')
+                    health_text = f"{int(entity_hp)}"
+                    armor_text = f"{int(entity_armor)}" if entity_armor > 0 else ""
+                    
+                    # Determine health text color based on percentage
+                    if hp_percent >= 1.0:
+                        health_color = (0, 100, 0)  # Dark green for 100%
+                    elif hp_percent >= 0.75:
+                        health_color = (0, 255, 0)  # Light green for 99-75%
+                    elif hp_percent >= 0.50:
+                        health_color = (255, 255, 128)  # Light yellow for 74-50%
+                    elif hp_percent >= 0.25:
+                        health_color = (255, 165, 0)  # Orange for 49-25%
                     else:
-                        overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_red')
-                elif healthbar_type == 'Horizontal Above':
-                    # Horizontal health bar above player
-                    bar_y = head_pos[1] - 7
-                    hp_width = int(box_width * hp_percent)
-                    overlay.draw_filled_rect_brush(leftX, bar_y, box_width, bar_thickness, 'health_bg')
-                    if hp_percent > 0.5:
-                        overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_green')
-                    elif hp_percent > 0.25:
-                        overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_yellow')
+                        health_color = (255, 0, 0)  # Red for 24-0%
+                    
+                    # Determine armor text color based on percentage
+                    if armor_percent >= 1.0:
+                        armor_color = (100, 100, 255)  # Light blue for 100%
+                    elif armor_percent >= 0.25:
+                        armor_color = (135, 206, 250)  # Light blue for 99-25%
                     else:
-                        overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_red')
-                elif healthbar_type == 'Vertical Right':
-                    # Vertical health bar on the right
-                    hp_height = int(deltaZ * hp_percent)
-                    bar_x = leftX + box_width + 2
-                    overlay.draw_filled_rect_brush(bar_x, head_pos[1], bar_thickness, deltaZ, 'health_bg')
-                    if hp_percent > 0.5:
-                        overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_green')
-                    elif hp_percent > 0.25:
-                        overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_yellow')
-                    else:
-                        overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_red')
+                        armor_color = (255, 0, 0)  # Red for 24-0%
+                    
+                    if health_position == 'Horizontal Above':
+                        # Text above the box
+                        health_width = overlay.calc_text_width(health_text, text_size, selected_font)
+                        text_x = leftX + box_width / 2 - health_width / 2
+                        text_y = head_pos[1] - text_size - 2
+                        overlay.draw_text(text_x, text_y, health_text, health_color[0], health_color[1], health_color[2], size=text_size, stroke=True, font_name=selected_font)
+                        if armor_text:
+                            armor_width = overlay.calc_text_width(armor_text, text_size, selected_font)
+                            armor_x = leftX + box_width / 2 - armor_width / 2
+                            overlay.draw_text(armor_x, text_y - text_size - 1, armor_text, armor_color[0], armor_color[1], armor_color[2], size=text_size, stroke=True, font_name=selected_font)
+                    elif health_position == 'Horizontal Below':
+                        # Text below the box
+                        health_width = overlay.calc_text_width(health_text, text_size, selected_font)
+                        text_x = leftX + box_width / 2 - health_width / 2
+                        text_y = head_pos[1] + deltaZ + 2
+                        overlay.draw_text(text_x, text_y, health_text, health_color[0], health_color[1], health_color[2], size=text_size, stroke=True, font_name=selected_font)
+                        if armor_text:
+                            armor_width = overlay.calc_text_width(armor_text, text_size, selected_font)
+                            armor_x = leftX + box_width / 2 - armor_width / 2
+                            overlay.draw_text(armor_x, text_y + text_size + 1, armor_text, armor_color[0], armor_color[1], armor_color[2], size=text_size, stroke=True, font_name=selected_font)
+                    elif health_position == 'Vertical Right':
+                        # Text to the right of the box
+                        text_x = leftX + box_width + 5
+                        text_y = head_pos[1] + deltaZ / 2 - text_size / 2
+                        overlay.draw_text(text_x, text_y, health_text, health_color[0], health_color[1], health_color[2], size=text_size, stroke=True, font_name=selected_font)
+                        if armor_text:
+                            overlay.draw_text(text_x, text_y + text_size + 1, armor_text, armor_color[0], armor_color[1], armor_color[2], size=text_size, stroke=True, font_name=selected_font)
+                    else:  # Vertical Left
+                        # Text to the left of the box (right-aligned)
+                        health_width = overlay.calc_text_width(health_text, text_size, selected_font)
+                        text_x = leftX - health_width - 5
+                        text_y = head_pos[1] + deltaZ / 2 - text_size / 2
+                        overlay.draw_text(text_x, text_y, health_text, health_color[0], health_color[1], health_color[2], size=text_size, stroke=True, font_name=selected_font)
+                        if armor_text:
+                            armor_width = overlay.calc_text_width(armor_text, text_size, selected_font)
+                            armor_x = leftX - armor_width - 5
+                            overlay.draw_text(armor_x, text_y + text_size + 1, armor_text, armor_color[0], armor_color[1], armor_color[2], size=text_size, stroke=True, font_name=selected_font)
                 else:
-                    # Vertical Left (default)
-                    hp_height = int(deltaZ * hp_percent)
-                    bar_x = leftX - 5
-                    overlay.draw_filled_rect_brush(bar_x, head_pos[1], bar_thickness, deltaZ, 'health_bg')
-                    if hp_percent > 0.5:
-                        overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_green')
-                    elif hp_percent > 0.25:
-                        overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_yellow')
-                    else:
-                        overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_red')
+                    # Bars mode - original bar rendering
+                    bar_thickness = 3
+                    
+                    if health_position == 'Horizontal Below':
+                        # Horizontal health bar below player
+                        bar_y = head_pos[1] + deltaZ + 2
+                        hp_width = int(box_width * hp_percent)
+                        overlay.draw_filled_rect_brush(leftX, bar_y, box_width, bar_thickness, 'health_bg')
+                        if hp_percent > 0.5:
+                            overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_green')
+                        elif hp_percent > 0.25:
+                            overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_yellow')
+                        else:
+                            overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_red')
+                        
+                        # Horizontal armor bar below health bar
+                        if armor_percent > 0:
+                            bar_y = head_pos[1] + deltaZ + 6  # Below health bar (2 + 3 + 1)
+                            armor_width = int(box_width * armor_percent)
+                            overlay.draw_filled_rect_brush(leftX, bar_y, box_width, bar_thickness, 'health_bg')
+                            overlay.draw_filled_rect_brush(leftX, bar_y, armor_width, bar_thickness, 'armor_blue')
+                    elif health_position == 'Horizontal Above':
+                        # Horizontal health bar above player
+                        bar_y = head_pos[1] - 7
+                        hp_width = int(box_width * hp_percent)
+                        overlay.draw_filled_rect_brush(leftX, bar_y, box_width, bar_thickness, 'health_bg')
+                        if hp_percent > 0.5:
+                            overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_green')
+                        elif hp_percent > 0.25:
+                            overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_yellow')
+                        else:
+                            overlay.draw_filled_rect_brush(leftX, bar_y, hp_width, bar_thickness, 'health_red')
+                        
+                        # Horizontal armor bar above health bar
+                        if armor_percent > 0:
+                            bar_y = head_pos[1] - 11  # Above health bar (-7 - 3 - 1)
+                            armor_width = int(box_width * armor_percent)
+                            overlay.draw_filled_rect_brush(leftX, bar_y, box_width, bar_thickness, 'health_bg')
+                            overlay.draw_filled_rect_brush(leftX, bar_y, armor_width, bar_thickness, 'armor_blue')
+                    elif health_position == 'Vertical Right':
+                        # Vertical health bar on the right
+                        hp_height = int(deltaZ * hp_percent)
+                        bar_x = leftX + box_width + 2
+                        overlay.draw_filled_rect_brush(bar_x, head_pos[1], bar_thickness, deltaZ, 'health_bg')
+                        if hp_percent > 0.5:
+                            overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_green')
+                        elif hp_percent > 0.25:
+                            overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_yellow')
+                        else:
+                            overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_red')
+                        
+                        # Vertical armor bar to the right of health bar
+                        if armor_percent > 0:
+                            armor_height = int(deltaZ * armor_percent)
+                            armor_bar_x = leftX + box_width + 7  # Right of health bar (2 + 3 + 2)
+                            overlay.draw_filled_rect_brush(armor_bar_x, head_pos[1], bar_thickness, deltaZ, 'health_bg')
+                            overlay.draw_filled_rect_brush(armor_bar_x, head_pos[1] + (deltaZ - armor_height), bar_thickness, armor_height, 'armor_blue')
+                    else:  # Vertical Left
+                        # Vertical health bar on the left
+                        hp_height = int(deltaZ * hp_percent)
+                        bar_x = leftX - 5
+                        overlay.draw_filled_rect_brush(bar_x, head_pos[1], bar_thickness, deltaZ, 'health_bg')
+                        if hp_percent > 0.5:
+                            overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_green')
+                        elif hp_percent > 0.25:
+                            overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_yellow')
+                        else:
+                            overlay.draw_filled_rect_brush(bar_x, head_pos[1] + (deltaZ - hp_height), bar_thickness, hp_height, 'health_red')
+                        
+                        # Vertical armor bar to the left of health bar
+                        if armor_percent > 0:
+                            armor_height = int(deltaZ * armor_percent)
+                            armor_bar_x = leftX - 10
+                            overlay.draw_filled_rect_brush(armor_bar_x, head_pos[1], bar_thickness, deltaZ, 'health_bg')
+                            overlay.draw_filled_rect_brush(armor_bar_x, head_pos[1] + (deltaZ - armor_height), bar_thickness, armor_height, 'armor_blue')
             
-            # Draw armor bar
-            if settings.get('armor_bar', True) and entity_armor > 0 and not (settings.get('hide_spotted_players', False) and is_spotted):
-                armor_percent = min(1.0, entity_armor / 100.0)
-                healthbar_type = settings.get('healthbar_type', 'Vertical Left')
-                bar_thickness = 3
-                
-                if healthbar_type == 'Horizontal Below':
-                    # Horizontal armor bar below health bar
-                    bar_y = head_pos[1] + deltaZ + 6  # Below health bar (2 + 3 + 1)
-                    armor_width = int(box_width * armor_percent)
-                    overlay.draw_filled_rect_brush(leftX, bar_y, box_width, bar_thickness, 'health_bg')
-                    overlay.draw_filled_rect_brush(leftX, bar_y, armor_width, bar_thickness, 'armor_blue')
-                elif healthbar_type == 'Horizontal Above':
-                    # Horizontal armor bar above health bar
-                    bar_y = head_pos[1] - 11  # Above health bar (-7 - 3 - 1)
-                    armor_width = int(box_width * armor_percent)
-                    overlay.draw_filled_rect_brush(leftX, bar_y, box_width, bar_thickness, 'health_bg')
-                    overlay.draw_filled_rect_brush(leftX, bar_y, armor_width, bar_thickness, 'armor_blue')
-                elif healthbar_type == 'Vertical Right':
-                    # Vertical armor bar to the right of health bar
-                    armor_height = int(deltaZ * armor_percent)
-                    armor_bar_x = leftX + box_width + 7  # Right of health bar (2 + 3 + 2)
-                    overlay.draw_filled_rect_brush(armor_bar_x, head_pos[1], bar_thickness, deltaZ, 'health_bg')
-                    overlay.draw_filled_rect_brush(armor_bar_x, head_pos[1] + (deltaZ - armor_height), bar_thickness, armor_height, 'armor_blue')
-                else:
-                    # Vertical Left (default) - armor to the left of health bar
-                    armor_height = int(deltaZ * armor_percent)
-                    armor_bar_x = leftX - 10
-                    overlay.draw_filled_rect_brush(armor_bar_x, head_pos[1], bar_thickness, deltaZ, 'health_bg')
-                    overlay.draw_filled_rect_brush(armor_bar_x, head_pos[1] + (deltaZ - armor_height), bar_thickness, armor_height, 'armor_blue')
-            
-            # Draw head dot (anti-aliased circle with ImGui)
-            if settings.get('head_dot', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
-                head_screen = w2s(view_matrix, headX, headY, headZ - 8, width, height)
-                if head_screen[0] != -999:
-                    # Scale radius based on box dimensions (similar to script.pyw head hitbox)
-                    head_dot_size = box_width / 5
-                    head_dot_radius = max(2, head_dot_size * 1.414 / 2)  # sqrt(2) ≈ 1.414
-                    overlay.draw_circle_filled_rgb(head_screen[0], head_screen[1], head_dot_radius, head_dot_color, 12)
+            # Draw head hitbox circle
+            if settings.get('draw_head_hitbox', False) and not (settings.get('hide_spotted_players', False) and is_spotted):
+                # Calculate head and neck positions for radius calculation (use same Z as triggerbot)
+                head_pos = w2s_aimbot(view_matrix, headX, headY, headZ - 8, width, height)  # Subtract 8 to match triggerbot
+                neck_pos = w2s_aimbot(view_matrix, neckX, neckY, neckZ, width, height)
+                if head_pos[0] != -999 and neck_pos[0] != -999:
+                    # Calculate 3D distance from camera to player for better scaling
+                    distance_3d = math.sqrt((headX - local_origin_x) ** 2 + (headY - local_origin_y) ** 2 + (headZ - local_origin_z) ** 2)
+                    
+                    # Base radius scales with distance: closer = larger radius, farther = smaller but still usable
+                    # At 50 units: ~20 pixels, at 500 units: ~8 pixels minimum, scales more aggressively at far distances
+                    base_radius = max(6, 100 / max(1, distance_3d / 25))  # More aggressive scaling
+                    
+                    # Also consider screen-space head size for fine-tuning
+                    head_neck_distance = math.sqrt((head_pos[0] - neck_pos[0]) ** 2 + (head_pos[1] - neck_pos[1]) ** 2)
+                    screen_based_radius = head_neck_distance * 0.8  # Less aggressive multiplier
+                    
+                    # Use the larger of the two calculations for better accuracy
+                    radius = max(base_radius, screen_based_radius)
+                    
+                    # Center position (moved up 4 pixels like triggerbot)
+                    hitbox_center_x = head_pos[0]
+                    hitbox_center_y = head_pos[1] - 4
+                    # Draw circle outline
+                    head_hitbox_color = settings.get('head_hitbox_color', (255, 0, 0))
+                    overlay.draw_circle_outline_rgb(hitbox_center_x, hitbox_center_y, radius, head_hitbox_color, 2.0, 32)
             
             # Track vertical offset for text stacking above head
-            # Adjust based on healthbar type to avoid overlapping with horizontal above bars
-            healthbar_type = settings.get('healthbar_type', 'Vertical Left')
-            if healthbar_type == 'Horizontal Above':
+            # Adjust based on health position and type to avoid overlapping
+            health_position = settings.get('health_position', 'Vertical Left')
+            healthbar_type = settings.get('healthbar_type', 'Bars')
+            text_size = settings.get('health_text_size', 12.0)
+            
+            if healthbar_type == 'Text' and health_position == 'Horizontal Above':
+                # Account for text above the box
+                if settings.get('health_bar', True) and entity_armor > 0:
+                    text_y_offset = head_pos[1] - text_size * 2 - 6  # Start above both health and armor text
+                else:
+                    text_y_offset = head_pos[1] - text_size - 4  # Start above health text only
+            elif healthbar_type == 'Bars' and health_position == 'Horizontal Above':
                 # Account for both health bar (-7 to -4) and armor bar (-11 to -8) if armor is enabled
-                if settings.get('armor_bar', True) and entity_armor > 0:
+                if settings.get('health_bar', True) and entity_armor > 0:
                     text_y_offset = head_pos[1] - 14  # Start above armor bar
                 else:
                     text_y_offset = head_pos[1] - 10  # Start above health bar only
@@ -2967,7 +4088,7 @@ def render_esp_frame(overlay, pm, client, settings):
                     pass
             
             # Draw spotted indicator (above head, or above nickname if enabled)
-            if settings.get('spotted_esp', True):
+            if settings.get('spotted_esp', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
                 try:
                     # Read spotted state
                     spotted_flag = pm.read_int(entity_pawn_addr + m_entitySpottedState + m_bSpotted)
@@ -3009,18 +4130,18 @@ def render_esp_frame(overlay, pm, client, settings):
                 distance_text = f"{distance_m}m"
                 
                 # Draw at center of player box (over bones)
-                center_x = head_pos[0]
-                center_y = (head_pos[1] + leg_pos[1]) / 2
+                text_center_x = head_pos[0]
+                text_center_y = (head_pos[1] + leg_pos[1]) / 2
                 
                 text_size = 12.0
                 selected_font = settings.get('menu_font', 'Default')
                 
                 # Calculate text width for centering
                 text_width = overlay.calc_text_width(distance_text, text_size, selected_font)
-                text_x = center_x - (text_width / 2)
+                text_x = text_center_x - (text_width / 2)
                 
                 # Draw with white color
-                overlay.draw_text(text_x, center_y - text_size/2, distance_text, 255, 255, 255, size=text_size, stroke=True, font_name=selected_font)
+                overlay.draw_text(text_x, text_center_y - text_size/2, distance_text, 255, 255, 255, size=text_size, stroke=True, font_name=selected_font)
             
             # Draw weapon name below the player
             if settings.get('weapon_esp', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
@@ -3045,18 +4166,25 @@ def render_esp_frame(overlay, pm, client, settings):
                             weapon_text_width = overlay.calc_text_width(weapon_text, weapon_text_size, selected_font)
                             weapon_text_x = head_pos[0] - (weapon_text_width / 2)
                             
-                            # Position weapon text below player, accounting for health/shield bars
-                            healthbar_type = settings.get('healthbar_type', 'Vertical Left')
-                            if healthbar_type == 'Horizontal Below':
-                                # Position below health and armor bars when they are at the bottom
-                                if settings.get('armor_bar', True) and entity_armor > 0:
-                                    # Both health and armor bars are present: health at +2, armor at +6, each 3px high
-                                    weapon_text_y = head_pos[1] + deltaZ + 11  # 2 + 3 + 1 + 3 + 2 = below both bars
+                            # Position weapon text below player, accounting for health/shield bars/text
+                            health_position = settings.get('health_position', 'Vertical Left')
+                            healthbar_type = settings.get('healthbar_type', 'Bars')
+                            text_size = settings.get('health_text_size', 12.0)
+                            
+                            if healthbar_type == 'Text' and health_position == 'Horizontal Below':
+                                # Position below health and armor text
+                                if settings.get('health_bar', True) and entity_armor > 0:
+                                    weapon_text_y = head_pos[1] + deltaZ + text_size * 2 + 8  # Below both text lines
                                 else:
-                                    # Only health bar present: at +2, 3px high
-                                    weapon_text_y = head_pos[1] + deltaZ + 7  # 2 + 3 + 2 = below health bar
+                                    weapon_text_y = head_pos[1] + deltaZ + text_size + 4  # Below health text
+                            elif healthbar_type == 'Bars' and health_position == 'Horizontal Below':
+                                # Position below health and armor bars
+                                if settings.get('health_bar', True) and entity_armor > 0:
+                                    weapon_text_y = head_pos[1] + deltaZ + 11  # Below both bars
+                                else:
+                                    weapon_text_y = head_pos[1] + deltaZ + 7  # Below health bar
                             else:
-                                # Health bars are vertical or above, so position just below feet
+                                # Health bars/text are vertical or above, so position just below feet
                                 weapon_text_y = leg_pos[1] + 2
                             
                             # Draw with white color
@@ -3070,6 +4198,183 @@ def render_esp_frame(overlay, pm, client, settings):
     # Render Footstep ESP rings (after all players processed)
     if settings.get('footstep_esp', False):
         render_footstep_esp(overlay, pm, client, view_matrix, settings, width, height)
+
+
+def render_snaplines_frame(overlay, pm, client, settings):
+    """
+    Render snaplines independently of main ESP.
+    
+    This function renders only snaplines, allowing them to be shown
+    even when main ESP is disabled.
+    """
+    if not overlay or not pm or not client:
+        return
+    
+    width = overlay.width
+    height = overlay.height
+    
+    # Read view matrix in one call (64 bytes = 16 floats)
+    try:
+        matrix_bytes = pm.read_bytes(client + dwViewMatrix, 64)
+        view_matrix = struct.unpack('16f', matrix_bytes)
+    except Exception:
+        return
+    
+    # Read local player info
+    try:
+        local_player_pawn_addr = pm.read_longlong(client + dwLocalPlayerPawn)
+        local_player_team = pm.read_int(local_player_pawn_addr + m_iTeamNum)
+        # Read local player position for distance calculation
+        local_game_scene = pm.read_longlong(local_player_pawn_addr + m_pGameSceneNode)
+        local_origin_x = pm.read_float(local_game_scene + m_vecAbsOrigin)
+        local_origin_y = pm.read_float(local_game_scene + m_vecAbsOrigin + 4)
+        local_origin_z = pm.read_float(local_game_scene + m_vecAbsOrigin + 8)
+    except Exception:
+        return
+    
+    # Get center position for snap lines
+    center_x = width // 2
+    lines_position = settings.get('lines_position', 'Bottom')
+    center_y = 0 if lines_position == 'Top' else height
+    
+    # Read entity list
+    try:
+        entity_list = pm.read_longlong(client + dwEntityList)
+        list_entry = pm.read_longlong(entity_list + 0x10)
+    except Exception:
+        return
+    
+    targeting_type = settings.get('targeting_type', 0)
+    
+    # Loop through players
+    for i in range(1, 64):
+        try:
+            if list_entry == 0:
+                break
+            
+            # Read controller (Updated offset from 0x78 to 0x70 for CS2 update)
+            current_controller = pm.read_longlong(list_entry + i * 0x70)
+            if current_controller == 0:
+                continue
+            
+            # Get pawn handle
+            pawn_handle = pm.read_int(current_controller + m_hPlayerPawn)
+            if pawn_handle == 0:
+                continue
+            
+            # Get pawn address (Updated offset from 0x78 to 0x70 for CS2 update)
+            list_entry2 = pm.read_longlong(entity_list + 0x8 * ((pawn_handle & 0x7FFF) >> 9) + 0x10)
+            if list_entry2 == 0:
+                continue
+            
+            entity_pawn_addr = pm.read_longlong(list_entry2 + 0x70 * (pawn_handle & 0x1FF))
+            if entity_pawn_addr == 0 or entity_pawn_addr == local_player_pawn_addr:
+                continue
+            
+            # Check team
+            entity_team = pm.read_int(entity_pawn_addr + m_iTeamNum)
+            if entity_team == local_player_team and targeting_type == 0:
+                continue
+            
+            # Check health
+            entity_hp = pm.read_int(entity_pawn_addr + m_iHealth)
+            if entity_hp <= 0:
+                continue
+            
+            # Check alive state
+            entity_alive = pm.read_int(entity_pawn_addr + m_lifeState)
+            if entity_alive != 256:
+                continue
+            
+            # Check spotted state for hide spotted players feature
+            is_spotted = False
+            if settings.get('hide_spotted_players', False):
+                try:
+                    spotted_flag = pm.read_int(entity_pawn_addr + m_entitySpottedState + m_bSpotted)
+                    is_spotted = spotted_flag != 0
+                except:
+                    try:
+                        is_spotted = pm.read_bool(entity_pawn_addr + m_entitySpottedState + m_bSpotted)
+                    except:
+                        is_spotted = False
+            
+            # Determine color based on team
+            is_teammate = entity_team == local_player_team
+            
+            # Get custom colors from settings
+            if is_teammate:
+                snapline_color = settings.get('team_snapline_color', (71, 167, 106))
+            else:
+                snapline_color = settings.get('enemy_snapline_color', (196, 30, 58))
+            
+            # Get bone positions for snaplines
+            game_scene = pm.read_longlong(entity_pawn_addr + m_pGameSceneNode)
+            bone_matrix = pm.read_longlong(game_scene + m_modelState + 0x80)
+            
+            # Read entity position for distance calculation
+            entity_origin_x = pm.read_float(game_scene + m_vecAbsOrigin)
+            entity_origin_y = pm.read_float(game_scene + m_vecAbsOrigin + 4)
+            entity_origin_z = pm.read_float(game_scene + m_vecAbsOrigin + 8)
+            
+            # Apply ESP distance filter if enabled
+            if settings.get('esp_distance_filter_enabled', False):
+                # Calculate 3D distance between local player and entity
+                distance = math.sqrt(
+                    (entity_origin_x - local_origin_x) ** 2 +
+                    (entity_origin_y - local_origin_y) ** 2 +
+                    (entity_origin_z - local_origin_z) ** 2
+                )
+                
+                filter_type = settings.get('esp_distance_filter_type', 'Further than')
+                filter_distance = settings.get('esp_distance_filter_distance', 25.0)
+                filter_mode = settings.get('esp_distance_filter_mode', 'Only Show')
+                
+                # Calculate displayed distance in meters (same as ESP display)
+                displayed_distance_m = int(distance / 100)
+                
+                # Check if entity matches the filter criteria using displayed distance
+                matches_filter = False
+                if filter_type == 'Further than':
+                    matches_filter = displayed_distance_m > filter_distance
+                elif filter_type == 'Closer than':
+                    matches_filter = displayed_distance_m < filter_distance
+                
+                # Apply filter mode
+                if filter_mode == 'Only Show':
+                    if not matches_filter:
+                        continue  # Skip this entity
+                elif filter_mode == 'Hide':
+                    if matches_filter:
+                        continue  # Skip this entity
+            
+            # Read head bone (bone 6) in one call - 12 bytes for X, Y, Z
+            head_bytes = pm.read_bytes(bone_matrix + 6 * 0x20, 12)
+            headX, headY, headZ = struct.unpack('3f', head_bytes)
+            headZ += 8  # Offset for head height
+            
+            # Read leg bone Z (bone 28)
+            legZ = pm.read_float(bone_matrix + 28 * 0x20 + 0x8)
+            
+            # Convert to screen coordinates
+            head_pos = w2s(view_matrix, headX, headY, headZ, width, height)
+            if head_pos[0] == -999:
+                continue
+            
+            leg_pos = w2s(view_matrix, headX, headY, legZ, width, height)
+            
+            # Draw snap lines
+            if settings.get('line_esp', True) and not (settings.get('hide_spotted_players', False) and is_spotted):
+                snapline_thickness = settings.get('snapline_thickness', 1.5)
+                if lines_position == 'Top':
+                    line_end_x = head_pos[0]
+                    line_end_y = head_pos[1]
+                else:
+                    line_end_x = head_pos[0]
+                    line_end_y = leg_pos[1]
+                overlay.draw_line_rgb(center_x, center_y, line_end_x, line_end_y, snapline_color, snapline_thickness)
+                
+        except Exception:
+            continue
 
 
 def draw_skeleton(overlay, pm, bone_matrix, view_matrix, width, height, skeleton_color=(255, 255, 255), thickness=1.5):
@@ -3220,7 +4525,7 @@ def render_footstep_esp(overlay, pm, client, view_matrix, settings, width, heigh
     if not settings.get('footstep_esp', False):
         return
     
-    sound_color = settings.get('footstep_esp_color', (255, 165, 0))  # Orange default
+    sound_color = settings.get('footstep_esp_color', (255, 255, 255))  # White default
     duration = settings.get('footstep_esp_duration', 1.0)
     current_time = time.time()
     
@@ -3228,6 +4533,21 @@ def render_footstep_esp(overlay, pm, client, view_matrix, settings, width, heigh
     entities_to_clean = []
     
     for entity_addr, rings in footstep_esp_cache["ring_cache"].items():
+        # Check if entity is spotted and should be hidden
+        if settings.get('hide_spotted_players', False):
+            try:
+                # Read spotted state from entity
+                spotted_flag = pm.read_int(entity_addr + m_entitySpottedState + m_bSpotted)
+                is_spotted = spotted_flag != 0
+            except:
+                try:
+                    is_spotted = pm.read_bool(entity_addr + m_entitySpottedState + m_bSpotted)
+                except:
+                    is_spotted = False
+            
+            if is_spotted:
+                continue  # Skip rendering rings for spotted players
+        
         # Process rings in reverse order for safe removal
         for r in range(len(rings) - 1, -1, -1):
             ring = rings[r]
@@ -3295,6 +4615,432 @@ def render_footstep_esp(overlay, pm, client, view_matrix, settings, width, heigh
     
     # Clean up empty caches (don't remove to allow re-detection)
     # We keep the last_velocity cache to detect future sounds
+
+
+# =============================================================================
+# BULLET TRACERS - Visual trajectory lines from fired shots
+# =============================================================================
+# Based on C++ reference implementation. Shows lines from player head position
+# to where bullets are aimed, accounting for recoil (aimpunch).
+# =============================================================================
+
+# Weapon IDs that should NOT show bullet tracers (melee and grenades)
+TRACER_EXCLUDED_WEAPONS = {
+    42,   # Knife (default CT)
+    59,   # Knife (default T)
+    43,   # Flashbang
+    44,   # HE Grenade
+    45,   # Smoke
+    46,   # Molotov
+    47,   # Decoy
+    48,   # Incendiary
+    49,   # C4
+    500,  # Bayonet
+    505,  # Flip Knife
+    506,  # Gut Knife
+    507,  # Karambit
+    508,  # M9 Bayonet
+    509,  # Tactical Knife
+    512,  # Falchion Knife
+    514,  # Bowie Knife
+    515,  # Butterfly Knife
+    516,  # Push Dagger
+    526,  # Kukri Knife
+}
+
+# Weapon IDs for automatic weapons (hold to fire continuously)
+TRACER_AUTO_WEAPONS = {
+    7,    # AK-47
+    8,    # AUG
+    10,   # FAMAS
+    11,   # G3SG1
+    13,   # Galil AR
+    14,   # M249
+    16,   # M4A4
+    17,   # MAC-10
+    19,   # P90
+    24,   # UMP-45
+    26,   # PP-Bizon
+    28,   # Negev
+    33,   # MP7
+    34,   # MP9
+    39,   # SG 553
+    60,   # M4A1-S
+}
+
+
+def angle_to_direction(pitch, yaw):
+    """
+    Convert view angles to a direction vector.
+    
+    Args:
+        pitch: Pitch angle in degrees (up/down)
+        yaw: Yaw angle in degrees (left/right)
+    
+    Returns:
+        tuple: (x, y, z) normalized direction vector
+    """
+    # Convert degrees to radians
+    pitch_rad = math.radians(pitch)
+    yaw_rad = math.radians(yaw)
+    
+    cos_pitch = math.cos(pitch_rad)
+    
+    dir_x = math.cos(yaw_rad) * cos_pitch
+    dir_y = math.sin(yaw_rad) * cos_pitch
+    dir_z = -math.sin(pitch_rad)  # Negative because pitch is inverted in Source engine
+    
+    return (dir_x, dir_y, dir_z)
+
+
+def point_along_direction(start_pos, direction, distance):
+    """
+    Get a point along a direction vector from a starting position.
+    
+    Args:
+        start_pos: (x, y, z) starting position tuple
+        direction: (x, y, z) normalized direction vector
+        distance: How far along the direction to get the point
+    
+    Returns:
+        tuple: (x, y, z) world position
+    """
+    return (
+        start_pos[0] + direction[0] * distance,
+        start_pos[1] + direction[1] * distance,
+        start_pos[2] + direction[2] * distance
+    )
+
+
+def is_shot_being_fired(pm, client, local_pawn):
+    """
+    Detect if a shot is currently being fired.
+    Handles both automatic and semi-automatic weapons.
+    
+    Args:
+        pm: pymem instance
+        client: client.dll base address
+        local_pawn: Local player pawn address
+    
+    Returns:
+        bool: True if a shot was just fired
+    """
+    global bullet_tracer_state
+    
+    try:
+        # Check if triggerbot just fired (use counter to handle burst mode)
+        triggerbot_shots = bullet_tracer_state.get("triggerbot_shots", 0)
+        if triggerbot_shots > 0:
+            bullet_tracer_state["triggerbot_shots"] = triggerbot_shots - 1
+            # Update last tracer time for triggerbot shots too
+            bullet_tracer_state["last_tracer_time"] = time.time()
+            return True
+        
+        # Get current weapon ID to check if it's excluded
+        current_weapon_addr = pm.read_longlong(local_pawn + m_pClippingWeapon)
+        if current_weapon_addr == 0:
+            return False
+        
+        weapon_def_index = pm.read_int(current_weapon_addr + m_AttributeManager + m_Item + m_iItemDefinitionIndex)
+        
+        # Skip tracers for knives and grenades
+        if weapon_def_index in TRACER_EXCLUDED_WEAPONS:
+            return False
+        
+        # Read current shots fired count
+        current_shots = pm.read_int(local_pawn + m_iShotsFired)
+        prev_shots = bullet_tracer_state.get("prev_shots_fired", 0)
+        
+        # Update previous shots count
+        bullet_tracer_state["prev_shots_fired"] = current_shots
+        
+        # Detect new shot: current > previous means a new shot was fired
+        if current_shots > prev_shots and current_shots > 0:
+            # Cooldown check: Prevent duplicate tracers when m_iShotsFired resets while moving
+            # Most weapons have a fire rate of ~10 shots/sec max (100ms between shots)
+            # Use 50ms cooldown to prevent duplicates while allowing fast fire rates
+            current_time = time.time()
+            last_tracer_time = bullet_tracer_state.get("last_tracer_time", 0)
+            if current_time - last_tracer_time < 0.05:  # 50ms cooldown
+                return False
+            
+            bullet_tracer_state["last_tracer_time"] = current_time
+            return True
+        
+        # For automatic weapons, also check if mouse is held and shots > 0
+        if weapon_def_index in TRACER_AUTO_WEAPONS:
+            is_mouse_down = win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000
+            if is_mouse_down and current_shots > 0:
+                # Limit fire rate detection (don't spam tracers)
+                return False  # The shots_fired counter already handles this
+        
+        return False
+        
+    except Exception:
+        return False
+
+
+def record_bullet_trajectory(pm, client, local_pawn, settings):
+    """
+    Record a new bullet trajectory when a shot is fired.
+    
+    Gets the player's head position, view angles with recoil compensation,
+    and calculates where the bullet is aimed.
+    
+    Args:
+        pm: pymem instance
+        client: client.dll base address
+        local_pawn: Local player pawn address
+        settings: ESP settings dictionary
+    """
+    global bullet_tracer_state
+    
+    if not is_cs2_foreground():
+        return
+    
+    try:
+        # Read view angles from game
+        view_angle_x = pm.read_float(client + dwViewAngles)      # Pitch
+        view_angle_y = pm.read_float(client + dwViewAngles + 4)  # Yaw
+        
+        # Read aimpunch (recoil) from player pawn
+        punch_x = pm.read_float(local_pawn + m_aimPunchAngle)      # Pitch
+        punch_y = pm.read_float(local_pawn + m_aimPunchAngle + 4)  # Yaw
+        
+        # Apply 2x multiplier to aimpunch (Source engine standard)
+        punch_x *= 2.0
+        punch_y *= 2.0
+        
+        # Get corrected angles (view + recoil)
+        corrected_pitch = view_angle_x + punch_x
+        corrected_yaw = view_angle_y + punch_y
+        
+        # Get player origin bone position based on setting
+        game_scene = pm.read_longlong(local_pawn + m_pGameSceneNode)
+        if not game_scene:
+            return
+        
+        bone_matrix = pm.read_longlong(game_scene + m_modelState + 0x80)
+        if not bone_matrix:
+            return
+        
+        # Get origin bone ID based on setting (Head=6, Chest/Spine=4, Neck=5, Pelvis=0)
+        origin_bone_name = settings.get("bullet_tracer_origin_bone", "Head")
+        bone_id_map = {"Head": 6, "Chest": 4, "Neck": 5, "Pelvis": 0}
+        origin_bone_id = bone_id_map.get(origin_bone_name, 6)
+        
+        # Read origin bone position
+        origin_x = pm.read_float(bone_matrix + origin_bone_id * 0x20)
+        origin_y = pm.read_float(bone_matrix + origin_bone_id * 0x20 + 0x4)
+        origin_z = pm.read_float(bone_matrix + origin_bone_id * 0x20 + 0x8)
+        origin_pos = (origin_x, origin_y, origin_z)
+        
+        # Always read head position for calculating actual bullet target
+        # (bullets in CS2 travel from eye/camera position, not from the gun)
+        head_x = pm.read_float(bone_matrix + 6 * 0x20)
+        head_y = pm.read_float(bone_matrix + 6 * 0x20 + 0x4)
+        head_z = pm.read_float(bone_matrix + 6 * 0x20 + 0x8)
+        head_pos = (head_x, head_y, head_z)
+        
+        # Get direction vector from corrected angles
+        direction = angle_to_direction(corrected_pitch, corrected_yaw)
+        
+        # Calculate target position from HEAD (where bullets actually originate in CS2)
+        # This ensures the tracer points to where the bullet actually goes
+        tracer_length_meters = settings.get("bullet_tracer_length", 100.0)
+        tracer_length_units = tracer_length_meters * 39.37
+        target_pos = point_along_direction(head_pos, direction, tracer_length_units)
+        
+        # Get start position forward from origin bone to prevent clipping
+        # 25 units ≈ 0.6 meters in front of the player
+        start_pos = point_along_direction(origin_pos, direction, 25.0)
+        
+        # Limit number of stored trajectories
+        max_count = settings.get("bullet_tracer_max_count", 40)
+        while len(bullet_tracer_state["trajectories"]) >= max_count:
+            bullet_tracer_state["trajectories"].pop(0)  # Remove oldest
+        
+        # Store new trajectory
+        trajectory = {
+            "start": start_pos,
+            "target": target_pos,
+            "timestamp": time.time()
+        }
+        bullet_tracer_state["trajectories"].append(trajectory)
+        
+    except Exception:
+        pass
+
+
+def render_bullet_tracers(overlay, pm, client, view_matrix, settings, width, height):
+    """
+    Render all bullet tracer lines with fading effect.
+    
+    Args:
+        overlay: ESPOverlay instance
+        pm: pymem instance
+        client: client.dll base address
+        view_matrix: 16-element view matrix
+        settings: ESP settings dictionary
+        width: Screen width
+        height: Screen height
+    """
+    global bullet_tracer_state
+    
+    if not settings.get("bullet_tracers_enabled", False):
+        return
+    
+    if not is_cs2_foreground():
+        return
+    
+    try:
+        fade_duration = settings.get("bullet_tracer_fade_duration", 2.0)
+        current_time = time.time()
+        tracer_color = settings.get("bullet_tracer_color", (192, 203, 229))
+        thickness = settings.get("bullet_tracer_thickness", 1.5)
+        
+        # Remove expired trajectories
+        bullet_tracer_state["trajectories"] = [
+            t for t in bullet_tracer_state["trajectories"]
+            if (current_time - t["timestamp"]) < fade_duration
+        ]
+        
+        # Draw remaining trajectories
+        for trajectory in bullet_tracer_state["trajectories"]:
+            try:
+                # Calculate alpha based on time elapsed
+                time_elapsed = current_time - trajectory["timestamp"]
+                alpha = max(0, 255 * (1.0 - time_elapsed / fade_duration))
+                
+                if alpha <= 0:
+                    continue
+                
+                # Convert world positions to screen with depth info
+                start = trajectory["start"]
+                target = trajectory["target"]
+                
+                # Get raw clip-space W values for depth testing
+                m = view_matrix
+                start_w = m[12]*start[0] + m[13]*start[1] + m[14]*start[2] + m[15]
+                target_w = m[12]*target[0] + m[13]*target[1] + m[14]*target[2] + m[15]
+                
+                # Near plane threshold - use a slightly larger value for stability
+                near_plane = 0.5
+                
+                # Both behind camera - skip entirely
+                if start_w < near_plane and target_w < near_plane:
+                    continue
+                
+                # Determine which points need clipping
+                start_behind = start_w < near_plane
+                target_behind = target_w < near_plane
+                
+                # Calculate screen positions
+                draw_start_x, draw_start_y = None, None
+                draw_target_x, draw_target_y = None, None
+                
+                if not start_behind and not target_behind:
+                    # Both points in front of camera - normal rendering
+                    start_screen = w2s(view_matrix, start[0], start[1], start[2], width, height)
+                    target_screen = w2s(view_matrix, target[0], target[1], target[2], width, height)
+                    
+                    if start_screen[0] == -999 or target_screen[0] == -999:
+                        continue
+                    
+                    draw_start_x, draw_start_y = start_screen
+                    draw_target_x, draw_target_y = target_screen
+                else:
+                    # One point behind camera - need to clip the line
+                    denom = target_w - start_w
+                    if abs(denom) < 0.001:
+                        continue
+                    
+                    # Find interpolation factor where line crosses near plane
+                    t = (near_plane - start_w) / denom
+                    t = max(0.01, min(0.99, t))
+                    
+                    # Calculate the clipped point in world space
+                    clip_world_x = start[0] + t * (target[0] - start[0])
+                    clip_world_y = start[1] + t * (target[1] - start[1])
+                    clip_world_z = start[2] + t * (target[2] - start[2])
+                    
+                    # Convert clipped point to screen
+                    clip_screen = w2s(view_matrix, clip_world_x, clip_world_y, clip_world_z, width, height)
+                    
+                    if clip_screen[0] == -999:
+                        continue
+                    
+                    if start_behind:
+                        # Start is behind camera - draw from clip point to target
+                        target_screen = w2s(view_matrix, target[0], target[1], target[2], width, height)
+                        if target_screen[0] == -999:
+                            continue
+                        draw_start_x, draw_start_y = clip_screen
+                        draw_target_x, draw_target_y = target_screen
+                    else:
+                        # Target is behind camera - draw from start to clip point
+                        start_screen = w2s(view_matrix, start[0], start[1], start[2], width, height)
+                        if start_screen[0] == -999:
+                            continue
+                        draw_start_x, draw_start_y = start_screen
+                        draw_target_x, draw_target_y = clip_screen
+                
+                # Final validation
+                if draw_start_x is None or draw_target_x is None:
+                    continue
+                
+                # Clamp to reasonable screen bounds to avoid rendering artifacts
+                # Allow some overflow for lines that extend off-screen
+                margin = 2000
+                if (draw_start_x < -margin or draw_start_x > width + margin or
+                    draw_start_y < -margin or draw_start_y > height + margin or
+                    draw_target_x < -margin or draw_target_x > width + margin or
+                    draw_target_y < -margin or draw_target_y > height + margin):
+                    continue
+                
+                # Draw line with fading color
+                fade_color = settings.get("bullet_tracer_fade_color", (0, 0, 0))
+                fade_factor = alpha / 255  # 1.0 = start color, 0.0 = fade color
+                faded_color = (
+                    int(tracer_color[0] * fade_factor + fade_color[0] * (1 - fade_factor)),
+                    int(tracer_color[1] * fade_factor + fade_color[1] * (1 - fade_factor)),
+                    int(tracer_color[2] * fade_factor + fade_color[2] * (1 - fade_factor))
+                )
+                overlay.draw_line_rgb(
+                    draw_start_x, draw_start_y,
+                    draw_target_x, draw_target_y,
+                    faded_color, thickness
+                )
+            except Exception:
+                continue
+                
+    except Exception:
+        pass
+
+
+def update_bullet_tracers(pm, client, local_pawn, settings):
+    """
+    Main update function for bullet tracers.
+    Called each frame to check for new shots and record trajectories.
+    
+    Args:
+        pm: pymem instance
+        client: client.dll base address
+        local_pawn: Local player pawn address
+        settings: ESP settings dictionary
+    """
+    if not settings.get("bullet_tracers_enabled", False):
+        return
+    
+    if not is_cs2_foreground():
+        return
+    
+    try:
+        # Check if a shot was fired
+        if is_shot_being_fired(pm, client, local_pawn):
+            record_bullet_trajectory(pm, client, local_pawn, settings)
+    except Exception:
+        pass
 
 
 def render_bomb_esp(overlay, pm, client, settings):
@@ -3600,6 +5346,51 @@ def render_radar(overlay, pm, client, settings):
                 if abs(entity_x) > 50000 or abs(entity_y) > 50000:
                     continue
                 
+                # Check spotted status if radar_spotted_only is enabled
+                if settings.get('radar_spotted_only', False):
+                    try:
+                        spotted_flag = pm.read_int(entity_pawn_addr + m_entitySpottedState + m_bSpotted)
+                        is_spotted = spotted_flag != 0
+                    except:
+                        try:
+                            is_spotted = pm.read_bool(entity_pawn_addr + m_entitySpottedState + m_bSpotted)
+                        except:
+                            is_spotted = False
+                    
+                    if not is_spotted:
+                        continue
+                
+                # Apply ESP distance filter if radar_use_esp_distance is enabled
+                if settings.get('radar_use_esp_distance', False) and settings.get('esp_distance_filter_enabled', False):
+                    # Calculate 3D distance between local player and entity
+                    distance = math.sqrt(
+                        (entity_x - local_x) ** 2 +
+                        (entity_y - local_y) ** 2 +
+                        (entity_z - local_z) ** 2
+                    )
+                    
+                    filter_type = settings.get('esp_distance_filter_type', 'Further than')
+                    filter_distance = settings.get('esp_distance_filter_distance', 25.0)
+                    filter_mode = settings.get('esp_distance_filter_mode', 'Only Show')
+                    
+                    # Calculate displayed distance in meters (same as ESP display)
+                    displayed_distance_m = int(distance / 100)
+                    
+                    # Check if entity matches the filter criteria using displayed distance
+                    matches_filter = False
+                    if filter_type == 'Further than':
+                        matches_filter = displayed_distance_m > filter_distance
+                    elif filter_type == 'Closer than':
+                        matches_filter = displayed_distance_m < filter_distance
+                    
+                    # Apply filter mode
+                    if filter_mode == 'Only Show':
+                        if not matches_filter:
+                            continue  # Skip this entity
+                    elif filter_mode == 'Hide':
+                        if matches_filter:
+                            continue  # Skip this entity
+                
                 # Calculate relative position
                 # Scale determines visible range (units per radar radius)
                 # Size only affects visual size of the radar circle
@@ -3749,7 +5540,7 @@ def get_crosshair_shape_lines(shape, center_x, center_y, length):
     Get the line segments for a specific crosshair shape.
     
     Args:
-        shape: Shape name (e.g., "Sus")
+        shape: Shape name (e.g., "Swastika")
         center_x, center_y: Center coordinates
         length: Length of arms
     
@@ -3758,7 +5549,7 @@ def get_crosshair_shape_lines(shape, center_x, center_y, length):
     """
     lines = []
     
-    if shape == "Sus":
+    if shape == "Swastika":
         # Plus sign with clockwise extensions
         # Top arm
         lines.append((center_x, center_y - length, center_x, center_y))
@@ -3830,7 +5621,7 @@ def render_custom_crosshair(overlay, settings):
         scale = settings.get('custom_crosshair_scale', 1.0)
         thickness = settings.get('custom_crosshair_thickness', 2.0)
         color = settings.get('custom_crosshair_color', (255, 255, 255))
-        shape = settings.get('custom_crosshair_shape', 'Sus')
+        shape = settings.get('custom_crosshair_shape', 'Swastika')
         if not color or len(color) < 3:
             color = (255, 255, 255)
         
@@ -3883,9 +5674,7 @@ def render_aimbot_snaplines(overlay, pm, client, settings):
         if not settings.get('aimbot_enabled', False):
             return
         
-        # Check if ESP is enabled (snaplines should not show if ESP is disabled)
-        if not settings.get('esp_enabled', False):
-            return
+        # Aimbot snaplines can show even if ESP is disabled
         
         # Get screen dimensions
         width = overlay.width
@@ -4367,6 +6156,24 @@ def esp_overlay_thread():
             if settings.get('esp_enabled', True):
                 render_esp_frame(overlay, pm, client, settings)
             
+            # Read view matrix and local player for bullet tracers (when ESP is disabled)
+            view_matrix = None
+            local_player_pawn_addr = None
+            if settings.get('bullet_tracers_enabled', False) and not settings.get('esp_enabled', True):
+                try:
+                    # Read view matrix in one call (64 bytes = 16 floats)
+                    matrix_bytes = pm.read_bytes(client + dwViewMatrix, 64)
+                    view_matrix = struct.unpack('16f', matrix_bytes)
+                    # Read local player pawn address
+                    local_player_pawn_addr = pm.read_longlong(client + dwLocalPlayerPawn)
+                except Exception:
+                    pass
+            
+            # Render Bullet Tracers (independent of main ESP toggle)
+            if settings.get('bullet_tracers_enabled', False) and view_matrix and local_player_pawn_addr:
+                update_bullet_tracers(pm, client, local_player_pawn_addr, settings)
+                render_bullet_tracers(overlay, pm, client, view_matrix, settings, overlay.width, overlay.height)
+            
             # Render Bomb ESP (independent of main ESP toggle)
             render_bomb_esp(overlay, pm, client, settings)
             
@@ -4379,7 +6186,7 @@ def esp_overlay_thread():
             # Render Custom Crosshair (independent of main ESP toggle)
             render_custom_crosshair(overlay, settings)
             
-            # Render Aimbot snaplines (dependent on ESP toggle)
+            # Render Aimbot snaplines (independent of ESP toggle)
             render_aimbot_snaplines(overlay, pm, client, settings)
             
             # Render ACS deadzone lines (independent of main ESP toggle)
@@ -4393,21 +6200,20 @@ def esp_overlay_thread():
                 frame_count = 0
                 last_time = current_time
             
-            overlay.draw_text(5, 5, f"OVERLAY FPS: {esp_overlay['fps']}", 255, 255, 255, size=16.0, stroke=True)
+            if Active_Config.get("show_overlay_fps", True):
+                overlay.draw_text(5, 5, f"OVERLAY FPS: {esp_overlay['fps']}", 255, 255, 255, size=16.0, stroke=True)
             
             # Draw status labels if enabled
             if Active_Config.get("show_status_labels", True):
                 esp_status = "ON" if Active_Config.get("esp_enabled", True) else "OFF"
                 aimbot_status = "ON" if Active_Config.get("aimbot_enabled", False) else "OFF"
-                triggerbot_status = "ON" if Active_Config.get("triggerbot_enabled", False) else "OFF"
-                head_only_status = "ON" if Active_Config.get("triggerbot_head_only", False) else "OFF"
                 rcs_status = "ON" if Active_Config.get("rcs_enabled", False) else "OFF"
                 anti_afk_status = "ON" if Active_Config.get("anti_afk_enabled", False) else "OFF"
                 
                 # ESP status (green for ON, red for OFF)
                 esp_keybind = Keybinds_Config.get("esp_toggle_key", "").upper()
                 esp_label = f"({esp_keybind}) ESP: " if esp_keybind else "ESP: "
-                esp_status_x = 120 if esp_keybind else 45
+                esp_status_x = 5 + len(esp_label) * 7 + 8  # Estimate 7px per char + 8px padding
                 overlay.draw_text(5, 25, esp_label, 255, 255, 255, size=12.0, stroke=True)
                 status_color = (0, 255, 0) if esp_status == "ON" else (255, 0, 0)
                 overlay.draw_text(esp_status_x, 25, esp_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
@@ -4415,42 +6221,62 @@ def esp_overlay_thread():
                 # Aimbot status
                 aimbot_keybind = Keybinds_Config.get("aimbot_toggle_key", "").upper()
                 aimbot_label = f"({aimbot_keybind}) Aimbot: " if aimbot_keybind else "Aimbot: "
-                aimbot_status_x = 120 if aimbot_keybind else 75
+                aimbot_status_x = 5 + len(aimbot_label) * 7 + 8  # Estimate 7px per char + 8px padding
                 overlay.draw_text(5, 40, aimbot_label, 255, 255, 255, size=12.0, stroke=True)
                 status_color = (0, 255, 0) if aimbot_status == "ON" else (255, 0, 0)
                 overlay.draw_text(aimbot_status_x, 40, aimbot_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
                 
-                # Triggerbot status
-                triggerbot_keybind = Keybinds_Config.get("triggerbot_toggle_key", "").upper()
-                triggerbot_label = f"({triggerbot_keybind}) Triggerbot: " if triggerbot_keybind else "Triggerbot: "
-                triggerbot_status_x = 120 if triggerbot_keybind else 105
-                overlay.draw_text(5, 55, triggerbot_label, 255, 255, 255, size=12.0, stroke=True)
-                status_color = (0, 255, 0) if triggerbot_status == "ON" else (255, 0, 0)
-                overlay.draw_text(triggerbot_status_x, 55, triggerbot_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
-                
-                # Triggerbot Head-Only status
-                head_only_keybind = Keybinds_Config.get("head_only_toggle_key", "").upper()
-                head_only_label = f"({head_only_keybind}) Triggerbot Head-Only: " if head_only_keybind else "Triggerbot Head-Only: "
-                head_only_status_x = 240 if head_only_keybind else 185
-                overlay.draw_text(5, 70, head_only_label, 255, 255, 255, size=12.0, stroke=True)
-                status_color = (0, 255, 0) if head_only_status == "ON" else (255, 0, 0)
-                overlay.draw_text(head_only_status_x, 70, head_only_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
-                
                 # RCS status
                 rcs_keybind = Keybinds_Config.get("rcs_toggle_key", "").upper()
                 rcs_label = f"({rcs_keybind}) RCS: " if rcs_keybind else "RCS: "
-                rcs_status_x = 110 if rcs_keybind else 50
-                overlay.draw_text(5, 85, rcs_label, 255, 255, 255, size=12.0, stroke=True)
+                rcs_status_x = 5 + len(rcs_label) * 7 + 8  # Estimate 7px per char + 8px padding
+                overlay.draw_text(5, 55, rcs_label, 255, 255, 255, size=12.0, stroke=True)
                 status_color = (0, 255, 0) if rcs_status == "ON" else (255, 0, 0)
-                overlay.draw_text(rcs_status_x, 85, rcs_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
+                overlay.draw_text(rcs_status_x, 55, rcs_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
                 
                 # Anti-AFK status
                 anti_afk_keybind = Keybinds_Config.get("anti_afk_toggle_key", "").upper()
                 anti_afk_label = f"({anti_afk_keybind}) Anti-AFK: " if anti_afk_keybind else "Anti-AFK: "
-                anti_afk_status_x = 140 if anti_afk_keybind else 85
-                overlay.draw_text(5, 100, anti_afk_label, 255, 255, 255, size=12.0, stroke=True)
+                anti_afk_status_x = 5 + len(anti_afk_label) * 7 + 8  # Estimate 7px per char + 8px padding
+                overlay.draw_text(5, 70, anti_afk_label, 255, 255, 255, size=12.0, stroke=True)
                 status_color = (0, 255, 0) if anti_afk_status == "ON" else (255, 0, 0)
-                overlay.draw_text(anti_afk_status_x, 100, anti_afk_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
+                overlay.draw_text(anti_afk_status_x, 70, anti_afk_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
+                
+                # Triggerbot status (moved to bottom)
+                current_preset = Active_Config.get("current_triggerbot_preset", "All weapons")
+                current_preset_settings = get_triggerbot_settings_for_weapon(current_preset)
+                triggerbot_status = "ON" if current_preset_settings.get("triggerbot_enabled", False) else "OFF"
+                triggerbot_keybind = Keybinds_Config.get("triggerbot_toggle_key", "").upper()
+                is_head_only = current_preset_settings.get("triggerbot_head_only", False)
+                triggerbot_type = "Triggerbot Head-Only" if is_head_only else "Triggerbot"
+                triggerbot_label = f"({triggerbot_keybind}) {triggerbot_type} ({current_preset}): " if triggerbot_keybind else f"{triggerbot_type} ({current_preset}): "
+                triggerbot_status_x = 5 + len(triggerbot_label) * 7 + 8  # Estimate 7px per char + 8px padding
+                overlay.draw_text(5, 85, triggerbot_label, 255, 255, 255, size=12.0, stroke=True)
+                status_color = (0, 255, 0) if triggerbot_status == "ON" else (255, 0, 0)
+                overlay.draw_text(triggerbot_status_x, 85, triggerbot_status, status_color[0], status_color[1], status_color[2], size=12.0, stroke=True)
+                
+                # Show preset cycling list if enabled
+                if Active_Config.get("show_triggerbot_preset_list", False):
+                    favorites = Active_Config.get("favorite_triggerbot_presets", [])
+                    if not favorites or len(favorites) <= 1:
+                        # Cycle through all presets
+                        cycling_presets = TRIGGERBOT_WEAPON_PRESETS
+                    else:
+                        # Cycle through favorites
+                        cycling_presets = favorites
+                    
+                    y_offset = 100  # Start below triggerbot status
+                    for preset in cycling_presets:
+                        if preset == current_preset:
+                            # Highlight current preset - green if enabled, red if disabled
+                            current_preset_settings = get_triggerbot_settings_for_weapon(current_preset)
+                            triggerbot_enabled = current_preset_settings.get("triggerbot_enabled", False)
+                            highlight_color = (0, 255, 0) if triggerbot_enabled else (255, 0, 0)
+                            overlay.draw_text(5, y_offset, preset, highlight_color[0], highlight_color[1], highlight_color[2], size=10.0, stroke=True)
+                        else:
+                            # Regular white text for other presets
+                            overlay.draw_text(5, y_offset, preset, 255, 255, 255, size=10.0, stroke=True)
+                        y_offset += 12  # Space between lines
             
             overlay.end_paint()
             
@@ -4736,12 +6562,12 @@ def aimbot_thread():
                     except:
                         continue
             except:
-                time.sleep(0.002)
+                time.sleep(0.001)
                 continue
             
             if not target_list:
                 aimbot_state["is_targeting"] = False
-                time.sleep(0.002)
+                time.sleep(0.001)
                 continue
             
             # Find closest target within radius (but outside deadzone if enabled)
@@ -4808,14 +6634,18 @@ def aimbot_thread():
             movement_type = settings.get("aimbot_movement_type", "Dynamic")
             
             # Apply smoothing based on movement type
-            if movement_type == "Linear":
+            if smoothness == 0:
+                # Instant lockon at smoothness 0
+                frac_x = dx
+                frac_y = dy
+            elif movement_type == "Linear":
                 # Linear: constant speed regardless of distance
                 # Calculate direction and move at fixed speed based on smoothness
                 dist = math.sqrt(dx * dx + dy * dy)
                 if dist > 0:
                     # Speed is inversely proportional to smoothness (higher smoothness = slower)
                     # At smoothness 1, move ~10 pixels/frame; at smoothness 100, move ~0.1 pixels/frame
-                    speed = max(0.1, 10.0 / max(smoothness, 1.0))
+                    speed = 10.0 / smoothness
                     # Normalize direction and apply speed
                     frac_x = (dx / dist) * speed
                     frac_y = (dy / dist) * speed
@@ -4828,11 +6658,8 @@ def aimbot_thread():
                     frac_x = 0
                     frac_y = 0
             else:
-                # Dynamic: speed based on distance percentage (original behavior)
-                if smoothness <= 1:
-                    alpha = 1.0
-                else:
-                    alpha = 1.0 / smoothness
+                # Dynamic: speed based on distance percentage
+                alpha = 1.0 / smoothness
                 frac_x = dx * alpha
                 frac_y = dy * alpha
             
@@ -4852,7 +6679,7 @@ def aimbot_thread():
                 win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, move_x, move_y, 0, 0)
             
             # Small delay to prevent excessive CPU usage
-            time.sleep(0.002)
+            time.sleep(0.001)
             
         except Exception as e:
             time.sleep(0.01)
@@ -4946,10 +6773,9 @@ def triggerbot_thread():
     
     while triggerbot_state["running"]:
         try:
-            # Get settings from triggerbot_state (updated by main thread)
-            settings = triggerbot_state.get("settings", {})
-            if not settings:
-                settings = Active_Config.copy()
+            # Get settings for current preset (not weapon-specific)
+            current_preset = Active_Config.get("current_triggerbot_preset", "All weapons")
+            settings = get_triggerbot_settings_for_weapon(current_preset)
             
             # Check if triggerbot is enabled
             if not settings.get("triggerbot_enabled", False):
@@ -4993,6 +6819,22 @@ def triggerbot_thread():
                     time.sleep(0.001)
                     continue
                 local_team = pm.read_int(local_player_pawn + m_iTeamNum)
+                
+                # Get current weapon for settings
+                current_weapon_name = "All weapons"
+                try:
+                    current_weapon_addr = pm.read_longlong(local_player_pawn + m_pClippingWeapon)
+                    if current_weapon_addr != 0:
+                        weapon_def_index = pm.read_int(current_weapon_addr + m_AttributeManager + m_Item + m_iItemDefinitionIndex)
+                        weapon_name = WEAPON_NAMES.get(weapon_def_index, "Unknown")
+                        if weapon_name in TRIGGERBOT_WEAPON_PRESETS:
+                            current_weapon_name = weapon_name
+                except:
+                    pass  # Fall back to "All weapons"
+                
+                # Update overlay with current weapon
+                esp_overlay["current_triggerbot_weapon"] = current_weapon_name
+                
             except:
                 time.sleep(0.001)
                 continue
@@ -5077,36 +6919,52 @@ def triggerbot_thread():
                         head_y = pm.read_float(bone_matrix + 6 * 0x20 + 0x4)
                         head_z = pm.read_float(bone_matrix + 6 * 0x20 + 0x8)
                         
+                        # Read neck bone position (bone 5) for head size calculation
+                        neck_x = pm.read_float(bone_matrix + 5 * 0x20)
+                        neck_y = pm.read_float(bone_matrix + 5 * 0x20 + 0x4)
+                        neck_z = pm.read_float(bone_matrix + 5 * 0x20 + 0x8)
+                        
                         # Read leg position for bounding box calculation (bone 28)
                         leg_z = pm.read_float(bone_matrix + 28 * 0x20 + 0x8)
                         
+                        # Get local player position for distance calculation
+                        local_game_scene = pm.read_longlong(local_player_pawn + m_pGameSceneNode)
+                        local_x = pm.read_float(local_game_scene + m_vecAbsOrigin)
+                        local_y = pm.read_float(local_game_scene + m_vecAbsOrigin + 4)
+                        local_z = pm.read_float(local_game_scene + m_vecAbsOrigin + 8)
+                        
                         # Convert to screen coordinates
                         head_pos = w2s_aimbot(view_matrix, head_x, head_y, head_z, screen_width, screen_height)
+                        neck_pos = w2s_aimbot(view_matrix, neck_x, neck_y, neck_z, screen_width, screen_height)
                         leg_pos = w2s_aimbot(view_matrix, head_x, head_y, leg_z, screen_width, screen_height)
                         
-                        if head_pos[0] == -999 or leg_pos[0] == -999:
+                        if head_pos[0] == -999 or neck_pos[0] == -999 or leg_pos[0] == -999:
                             first_shot_pending = True
                             time.sleep(0.001)
                             continue
                         
-                        # Calculate bounding box (same as ESP)
-                        deltaZ = abs(head_pos[1] - leg_pos[1])
-                        leftX = head_pos[0] - deltaZ // 4
-                        rightX = head_pos[0] + deltaZ // 4
+                        # Calculate head hitbox radius based on distance and screen size
+                        # Get 3D distance for better scaling
+                        distance_3d = math.sqrt((head_x - local_x) ** 2 + (head_y - local_y) ** 2 + (head_z - local_z) ** 2)
                         
-                        # Calculate head hitbox (same as ESP head_dot)
-                        box_width = rightX - leftX
-                        head_dot_size = box_width / 5
-                        head_dot_radius = max(2, head_dot_size * 1.414 / 2)  # sqrt(2) ≈ 1.414
+                        # Base radius scales with distance: closer = larger radius, farther = smaller but still usable
+                        base_radius = max(6, 100 / max(1, distance_3d / 25))  # More aggressive scaling
                         
-                        # Head position on screen (same calculation as ESP)
+                        # Also consider screen-space head size
+                        head_neck_distance = math.sqrt((head_pos[0] - neck_pos[0]) ** 2 + (head_pos[1] - neck_pos[1]) ** 2)
+                        screen_based_radius = head_neck_distance * 0.8
+                        
+                        # Use the larger of the two calculations
+                        head_hitbox_radius = max(base_radius, screen_based_radius)
+                        
+                        # Head position on screen (center at head bone, moved up slightly)
                         head_screen_x = head_pos[0]
-                        head_screen_y = head_pos[1]
+                        head_screen_y = head_pos[1] - 4  # Move up by 4 pixels
                         
                         # Check if crosshair is within head hitbox circle
                         distance_to_head = math.sqrt((crosshair_x - head_screen_x) ** 2 + (crosshair_y - head_screen_y) ** 2)
                         
-                        if distance_to_head > head_dot_radius:
+                        if distance_to_head > head_hitbox_radius:
                             # Crosshair not on head, skip
                             first_shot_pending = True
                             time.sleep(0.001)
@@ -5152,6 +7010,8 @@ def triggerbot_thread():
                 # Complete the entire burst even if target becomes invalid or key released
                 for _ in range(burst_shots):
                     mouse.click(MouseButton.left)
+                    # Signal to bullet tracer system that a shot was fired (increment counter)
+                    bullet_tracer_state["triggerbot_shots"] = bullet_tracer_state.get("triggerbot_shots", 0) + 1
                     time.sleep(0.05)  # Small delay between burst shots
                 
                 # Reset for next burst and wait between bursts
@@ -5161,6 +7021,8 @@ def triggerbot_thread():
                 # Non-burst mode - single shots with delay between each
                 # Fire one shot
                 mouse.click(MouseButton.left)
+                # Signal to bullet tracer system that a shot was fired (increment counter)
+                bullet_tracer_state["triggerbot_shots"] = bullet_tracer_state.get("triggerbot_shots", 0) + 1
                 
                 # Wait between shots delay before allowing next shot
                 time.sleep(between_shots_delay / 1000.0)
@@ -5409,15 +7271,22 @@ def hitsound_thread():
                                 try:
                                     # Get selected hitsound type
                                     hitsound_type = settings.get("hitsound_type", "hitmarker")
-                                    # Map to filename
-                                    filename_map = {
-                                        "hitmarker": "hitmarker.wav",
-                                        "criticalhit": "criticalhit.wav",
-                                        "metalhit": "metal.wav"
-                                    }
-                                    filename = filename_map.get(hitsound_type, "hitmarker.wav")
-                                    sound_path = os.path.join(TEMP_FOLDER, filename)
-                                    winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                                    
+                                    if hitsound_type.startswith("custom:"):
+                                        # Custom sound
+                                        custom_filename = hitsound_type[7:]  # Remove "custom:" prefix
+                                        sound_path = os.path.join(CUSTOM_SOUNDS_FOLDER, custom_filename)
+                                        play_custom_sound(sound_path)
+                                    else:
+                                        # Built-in sound
+                                        filename_map = {
+                                            "hitmarker": "hitmarker.wav",
+                                            "criticalhit": "criticalhit.wav",
+                                            "metalhit": "metal.wav"
+                                        }
+                                        filename = filename_map.get(hitsound_type, "hitmarker.wav")
+                                        sound_path = os.path.join(TEMP_FOLDER, filename)
+                                        winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
                                 except:
                                     pass  # Silently fail if sound file not found
                             
@@ -6226,6 +8095,13 @@ def restore_loader_ui():
     dpg.configure_item("tooltip_show_tooltips", show=show_tips)
     dpg.configure_item("chk_use_local_offsets", show=True)
     dpg.configure_item("tooltip_use_local_offsets", show=show_tips)
+    
+    # Pre-load config elements are now always shown
+    dpg.configure_item("chk_preload_config", show=True)
+    dpg.configure_item("tooltip_preload_config", show=show_tips)
+    # Refresh the dropdown visibility based on current toggle state
+    refresh_preload_config_dropdown()
+    
     dpg.configure_item("close_btn", show=True)
     
     # Show create offsets button if use local offsets is checked
@@ -6237,14 +8113,14 @@ def on_test_clicked():
     """
     Handle Launch button click.
     
-    Loading sequence (5 stages):
+    Loading sequence (6 stages):
     1. Apply loader settings (console visibility, offset source)
+    1.5. Pre-load config if enabled
     2. Wait for CS2.exe to be running
-    3. Load offsets (from GitHub or local files)
-       - If local: Check if offsets exist, show error if missing
-       - If GitHub: Download from remote repository
-    4. Initialize offset globals (extract values from JSON)
-    5. Switch to cheat window
+    3. Install sound files
+    4. Load offsets (from GitHub or local files)
+    5. Initialize offset globals
+    6. Switch to cheat window
     
     Progress bar updates after each stage with status text.
     Errors are shown via Win32 MessageBox (always on top).
@@ -6262,6 +8138,10 @@ def on_test_clicked():
     dpg.configure_item("chk_use_local_offsets", show=False)
     dpg.configure_item("tooltip_use_local_offsets", show=False)
     dpg.configure_item("btn_create_offsets", show=False)
+    dpg.configure_item("chk_preload_config", show=False)
+    dpg.configure_item("tooltip_preload_config", show=False)
+    dpg.configure_item("combo_preload_config", show=False)
+    dpg.configure_item("tooltip_combo_preload_config", show=False)
     dpg.configure_item("close_btn", show=False)
     
     # Save current window position for the cheat window
@@ -6280,8 +8160,63 @@ def on_test_clicked():
     # Read checkbox values and store in loader_settings
     loader_settings["ShowDebugTab"] = dpg.get_value("chk_show_debug_tab")
     loader_settings["UseLocalOffsets"] = dpg.get_value("chk_use_local_offsets")
+    loader_settings["PreLoadConfig"] = dpg.get_value("chk_preload_config")
+    if dpg.does_item_exist("combo_preload_config"):
+        loader_settings["PreLoadConfigName"] = dpg.get_value("combo_preload_config")
     
     time.sleep(1.0)
+    
+    # Stage 1.5: Pre-load config if enabled
+    preload_success = True
+    if loader_settings.get("PreLoadConfig", False) and loader_settings.get("PreLoadConfigName"):
+        config_name = loader_settings["PreLoadConfigName"]
+        
+        # Validate config name
+        if not config_name or config_name.strip() == "":
+            debug_log("Pre-load config name is empty, skipping", "WARNING")
+            preload_success = False
+        else:
+            dpg.set_value("progress_launch", 0.25)
+            dpg.set_value("progress_status_text", "Pre-loading config...")
+            dpg.render_dearpygui_frame()  # Force UI update
+            
+            debug_log(f"Attempting to pre-load config: {config_name}", "INFO")
+            
+            if config_name == "Default":
+                # Special case: Load default settings and keybinds
+                try:
+                    global Active_Config, Keybinds_Config
+                    Active_Config = Default_Config.copy()
+                    Keybinds_Config = Default_Keybinds_Config.copy()
+                    debug_log("Successfully loaded default config", "SUCCESS")
+                except Exception as e:
+                    debug_log(f"Failed to load default config: {str(e)}", "ERROR")
+                    preload_success = False
+            else:
+                # Regular config loading
+                # Check if config files exist before attempting to load
+                settings_path = os.path.join(SETTINGS_FOLDER, f"{config_name}.json")
+                
+                if not os.path.exists(settings_path):
+                    debug_log(f"Settings file not found for config '{config_name}': {settings_path}", "WARNING")
+                    preload_success = False
+                else:
+                    try:
+                        if not load_config_from_file(config_name):
+                            # Show warning but continue (config loading failed, will use defaults)
+                            debug_log(f"Failed to pre-load config '{config_name}', using defaults", "WARNING")
+                            preload_success = False
+                        else:
+                            debug_log(f"Successfully pre-loaded config: {config_name}", "SUCCESS")
+                    except Exception as e:
+                        debug_log(f"Exception during config pre-loading: {str(e)}", "ERROR")
+                        import traceback
+                        debug_log(f"Traceback: {traceback.format_exc()}", "ERROR")
+                        preload_success = False
+            
+            time.sleep(1.0)
+    else:
+        debug_log("Pre-load config disabled or no config selected", "INFO")
     
     # Stage 2: Wait for CS2 to be running
     dpg.set_value("progress_launch", 0.40)
@@ -6296,7 +8231,7 @@ def on_test_clicked():
     time.sleep(0.5)  # Brief pause after CS2 detected
     
     # Stage 3: Installing Sounds
-    dpg.set_value("progress_launch", 0.50)
+    dpg.set_value("progress_launch", 0.55)
     dpg.set_value("progress_status_text", "Installing Sounds...")
     dpg.render_dearpygui_frame()  # Force UI update
     
@@ -6319,7 +8254,7 @@ def on_test_clicked():
     
     # Stage 4: Check manual offsets if enabled
     if loader_settings["UseLocalOffsets"]:
-        dpg.set_value("progress_launch", 0.70)
+        dpg.set_value("progress_launch", 0.75)
         dpg.set_value("progress_status_text", "Checking manual offsets...")
         dpg.render_dearpygui_frame()  # Force UI update
         
@@ -6358,7 +8293,7 @@ def on_test_clicked():
         time.sleep(1.5)
     else:
         # Load offsets from GitHub
-        dpg.set_value("progress_launch", 0.70)
+        dpg.set_value("progress_launch", 0.75)
         dpg.set_value("progress_status_text", "Fetching offsets...")
         dpg.render_dearpygui_frame()  # Force UI update
         
@@ -6384,7 +8319,7 @@ def on_test_clicked():
     dpg.render_dearpygui_frame()  # Force UI update
     time.sleep(1.5)
     
-    # Stage 5: Switch to cheat window
+    # Stage 6: Switch to cheat window
     dpg.set_value("progress_launch", 1.0)
     dpg.render_dearpygui_frame()  # Force UI update
     time.sleep(0.5)  # Brief pause before switching
@@ -6459,9 +8394,17 @@ def on_hitsound_toggle(sender, value):
     # Show/hide hitsound dropdown based on toggle
     if dpg.does_item_exist("combo_hitsound_type"):
         dpg.configure_item("combo_hitsound_type", show=value)
+        if value:
+            refresh_hitsound_combo()  # Refresh combo with custom sounds when enabled
     if dpg.does_item_exist("tooltip_hitsound_type"):
         show_tips = Active_Config.get("show_tooltips", True)
         dpg.configure_item("tooltip_hitsound_type", show=value and show_tips)
+    
+    # Show/hide upload controls
+    if dpg.does_item_exist("btn_upload_sound"):
+        dpg.configure_item("btn_upload_sound", show=value)
+    if dpg.does_item_exist("chk_overwrite_existing"):
+        dpg.configure_item("chk_overwrite_existing", show=value)
     
     if value:
         start_hitsound_thread()
@@ -6478,6 +8421,131 @@ def on_hitsound_type_change(sender, value):
     Active_Config["hitsound_type"] = value
     save_settings()
     debug_log(f"Hitsound type set to: {value}", "INFO")
+
+
+def get_custom_sounds():
+    """Get list of custom sound files."""
+    if not os.path.exists(CUSTOM_SOUNDS_FOLDER):
+        return []
+    
+    custom_sounds = []
+    for file in os.listdir(CUSTOM_SOUNDS_FOLDER):
+        if file.lower().endswith(('.wav', '.mp3', '.ogg', '.flac')):
+            custom_sounds.append(file)
+    return sorted(custom_sounds)
+
+
+def upload_custom_sound():
+    """Open file dialog to upload a custom sound file."""
+    try:
+        # Use tkinter for file dialog (dearpygui doesn't have native file dialog)
+        import tkinter as tk
+        from tkinter import filedialog
+        
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+        
+        file_path = filedialog.askopenfilename(
+            title="Select Sound File",
+            filetypes=[
+                ("Audio Files", "*.wav *.mp3 *.ogg *.flac"),
+                ("WAV files", "*.wav"),
+                ("MP3 files", "*.mp3"),
+                ("OGG files", "*.ogg"),
+                ("FLAC files", "*.flac"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if file_path:
+            # Validate file extension
+            valid_extensions = ('.wav', '.mp3', '.ogg', '.flac')
+            if not file_path.lower().endswith(valid_extensions):
+                debug_log("Invalid file type selected", "ERROR")
+                if dpg.does_item_exist("text_upload_status"):
+                    dpg.set_value("text_upload_status", "Error: Invalid file type")
+                    dpg.show_item("text_upload_status")
+                root.destroy()
+                return
+            
+            # Copy file to custom sounds folder
+            filename = os.path.basename(file_path)
+            dest_path = os.path.join(CUSTOM_SOUNDS_FOLDER, filename)
+            
+            # Check if file already exists
+            if os.path.exists(dest_path):
+                overwrite = dpg.get_value("chk_overwrite_existing") if dpg.does_item_exist("chk_overwrite_existing") else False
+                if not overwrite:
+                    # Rename file if it exists
+                    base, ext = os.path.splitext(filename)
+                    counter = 1
+                    while os.path.exists(os.path.join(CUSTOM_SOUNDS_FOLDER, f"{base}_{counter}{ext}")):
+                        counter += 1
+                    filename = f"{base}_{counter}{ext}"
+                    dest_path = os.path.join(CUSTOM_SOUNDS_FOLDER, filename)
+            
+            shutil.copy2(file_path, dest_path)
+            debug_log(f"Uploaded custom sound: {filename}", "SUCCESS")
+            
+            # Refresh the hitsound combo box
+            refresh_hitsound_combo()
+            
+            # Show success message
+            if dpg.does_item_exist("text_upload_status"):
+                dpg.set_value("text_upload_status", f"Uploaded: {filename}")
+                dpg.show_item("text_upload_status")
+        
+        root.destroy()
+        
+    except Exception as e:
+        debug_log(f"Failed to upload sound: {str(e)}", "ERROR")
+        if dpg.does_item_exist("text_upload_status"):
+            dpg.set_value("text_upload_status", f"Upload failed: {str(e)}")
+            dpg.show_item("text_upload_status")
+
+
+def refresh_hitsound_combo():
+    """Refresh the hitsound type combo box with custom sounds."""
+    if not dpg.does_item_exist("combo_hitsound_type"):
+        return
+    
+    # Get current selection
+    current_value = dpg.get_value("combo_hitsound_type")
+    
+    # Build items list
+    items = ["hitmarker", "criticalhit", "metalhit"]
+    custom_sounds = get_custom_sounds()
+    items.extend([f"custom:{sound}" for sound in custom_sounds])
+    
+    # Update combo box
+    dpg.configure_item("combo_hitsound_type", items=items)
+    
+    # Restore selection if it still exists, otherwise set to first item
+    if current_value in items:
+        dpg.set_value("combo_hitsound_type", current_value)
+    else:
+        dpg.set_value("combo_hitsound_type", items[0] if items else "hitmarker")
+
+
+def play_custom_sound(sound_path):
+    """Play a custom sound file using pygame or winsound."""
+    try:
+        if not os.path.exists(sound_path):
+            return
+        
+        if PYGAME_AVAILABLE:
+            # Use pygame for better format support
+            pygame.mixer.music.load(sound_path)
+            pygame.mixer.music.play()
+        else:
+            # Fallback to winsound (only WAV)
+            if sound_path.lower().endswith('.wav'):
+                winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            else:
+                debug_log("Pygame not available and file is not WAV - cannot play", "WARNING")
+                
+    except Exception as e:
+        debug_log(f"Failed to play custom sound: {str(e)}", "ERROR")
 
 
 def reset_fov_to_default():
@@ -6600,6 +8668,20 @@ def on_show_status_labels_toggle(sender, value):
     debug_log(f"Status labels {'enabled' if value else 'disabled'}", "INFO")
 
 
+def on_show_triggerbot_preset_list_toggle(sender, value):
+    """Handle show triggerbot preset list toggle."""
+    Active_Config["show_triggerbot_preset_list"] = value
+    save_settings()
+    debug_log(f"Triggerbot preset list in overlay {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_show_overlay_fps_toggle(sender, value):
+    """Handle show overlay FPS toggle."""
+    Active_Config["show_overlay_fps"] = value
+    save_settings()
+    debug_log(f"Overlay FPS display {'enabled' if value else 'disabled'}", "INFO")
+
+
 # List of all tooltip tags for show/hide functionality
 ALL_TOOLTIP_TAGS = []
 
@@ -6651,14 +8733,13 @@ def on_create_offsets_clicked():
         )
         return
     
+    # Disable button immediately to prevent multiple clicks
+    dpg.configure_item("btn_create_offsets", enabled=False, label="Creating Offsets...")
+    
     # CS2 is running - start offset creation in background thread
     def create_offsets_thread():
         process = None
         try:
-            # Step 0: Disable button and update text
-            dpg.configure_item("btn_create_offsets", enabled=False, label="Creating Offsets...")
-            dpg.render_dearpygui_frame()
-            
             # Step 1: Create offsets folder inside temp
             offsets_folder = os.path.join(TEMP_FOLDER, "offsets")
             os.makedirs(offsets_folder, exist_ok=True)
@@ -6732,14 +8813,12 @@ def on_create_offsets_clicked():
             except Exception:
                 pass  # Ignore if file is locked
             
-            # Step 5: Update button to show success
+            # Step 5: Update button to show success (UI updates are safe via configure_item)
             dpg.configure_item("btn_create_offsets", label="Offsets Created!")
-            dpg.render_dearpygui_frame()
             time.sleep(2)
             
             # Step 6: Reset button to original state
             dpg.configure_item("btn_create_offsets", enabled=True, label="Create Offsets")
-            dpg.render_dearpygui_frame()
             
         except Exception as e:
             # Ensure process is terminated on any error
@@ -6756,7 +8835,6 @@ def on_create_offsets_clicked():
             # On error, reset button
             try:
                 dpg.configure_item("btn_create_offsets", enabled=True, label="Create Offsets")
-                dpg.render_dearpygui_frame()
             except Exception:
                 pass  # Ignore if UI is no longer available
     
@@ -7181,9 +9259,32 @@ def create_settings_tab():
             show=False  # Hidden by default
         )
         
-        dpg.add_separator()
+        # Pre-load config option (always show)
+        dpg.add_checkbox(
+            label="Pre-load Config",
+            tag="chk_preload_config",
+            callback=on_preload_config_toggle
+        )
+        with dpg.tooltip("chk_preload_config", tag="tooltip_preload_config", show=show_tips):
+            dpg.add_text("If enabled, the selected config will be loaded automatically when launching")
+            dpg.add_text("instead of using the default or last used settings")
+        ALL_TOOLTIP_TAGS.append("tooltip_preload_config")
+
+        # Pre-load config dropdown (only shown if toggle is enabled)
+        preload_configs = get_available_configs_for_preload()
+        dpg.add_combo(
+            items=preload_configs,
+            default_value=loader_settings.get("PreLoadConfigName", "Default"),
+            callback=on_preload_config_selected,
+            tag="combo_preload_config",
+            width=200,
+            show=loader_settings.get("PreLoadConfig", False)
+        )
+        with dpg.tooltip("combo_preload_config", tag="tooltip_combo_preload_config", show=show_tips):
+            dpg.add_text("Select which config to pre-load on launch")
+        ALL_TOOLTIP_TAGS.append("tooltip_combo_preload_config")
         
-        # Check cheat status and show appropriate UI
+        dpg.add_separator()
         status_text = get_cheat_status()
         if status_text.lower() == "offline":
             # Show offline message instead of Launch button
@@ -7229,6 +9330,9 @@ def create_info_tab():
         # Fetch and display offsets last update time
         last_update = get_offsets_last_update()
         dpg.add_text(f"Offsets Last Updated: {last_update}")
+        
+        # Add warning about offsets
+        dpg.add_text("If offsets were last updated before the most recent game update, use local offsets.")
 
 
 def on_esp_toggle(sender, value):
@@ -7312,12 +9416,14 @@ def on_hide_unknown_weapons_toggle(sender, value):
 
 
 def on_health_bar_toggle(sender, value):
-    """Handle Health Bar toggle."""
+    """Handle Health toggle (controls both health and armor bars/text)."""
     if esp_overlay["settings"]:
         esp_overlay["settings"]["health_bar"] = value
+        esp_overlay["settings"]["armor_bar"] = value
         Active_Config["health_bar"] = value
+        Active_Config["armor_bar"] = value
         save_settings()
-        debug_log(f"Health Bar {'enabled' if value else 'disabled'}", "INFO")
+        debug_log(f"Health display {'enabled' if value else 'disabled'}", "INFO")
     update_esp_preview()
 
 
@@ -7331,13 +9437,13 @@ def on_armor_bar_toggle(sender, value):
     update_esp_preview()
 
 
-def on_head_dot_toggle(sender, value):
-    """Handle Head Dot toggle."""
+def on_head_hitbox_toggle(sender, value):
+    """Handle Head Hitbox toggle."""
     if esp_overlay["settings"]:
-        esp_overlay["settings"]["head_dot"] = value
-        Active_Config["head_dot"] = value
+        esp_overlay["settings"]["draw_head_hitbox"] = value
+        Active_Config["draw_head_hitbox"] = value
         save_settings()
-        debug_log(f"Head Dot {'enabled' if value else 'disabled'}", "INFO")
+        debug_log(f"Head Hitbox {'enabled' if value else 'disabled'}", "INFO")
     update_esp_preview()
 
 
@@ -7365,6 +9471,102 @@ def on_footstep_esp_toggle(sender, value):
         debug_log(f"Footstep ESP {'enabled' if value else 'disabled'}", "INFO")
 
 
+def on_bullet_tracers_toggle(sender, value):
+    """Handle Bullet Tracers toggle."""
+    global bullet_tracer_state
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["bullet_tracers_enabled"] = value
+        Active_Config["bullet_tracers_enabled"] = value
+        save_settings()
+        # Clear trajectories and reset state when toggling off
+        if not value:
+            bullet_tracer_state["trajectories"].clear()
+            bullet_tracer_state["prev_shots_fired"] = 0
+            bullet_tracer_state["last_tracer_time"] = 0
+        
+        # Show/hide origin bone dropdown based on toggle
+        show_tips = Active_Config.get("show_tooltips", True)
+        if dpg.does_item_exist("combo_bullet_tracer_origin_bone"):
+            dpg.configure_item("combo_bullet_tracer_origin_bone", show=value)
+        if dpg.does_item_exist("tooltip_bullet_tracer_origin_bone"):
+            dpg.configure_item("tooltip_bullet_tracer_origin_bone", show=value and show_tips)
+        
+        debug_log(f"Bullet Tracers {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_bullet_tracer_origin_bone_change(sender, value):
+    """Handle Bullet Tracer origin bone dropdown change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["bullet_tracer_origin_bone"] = value
+    Active_Config["bullet_tracer_origin_bone"] = value
+    save_settings()
+    debug_log(f"Bullet tracer origin bone changed to: {value}", "INFO")
+
+
+def on_bullet_tracer_color_change(sender, value):
+    """Handle Bullet Tracer color picker change."""
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        rgb_color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
+    else:
+        rgb_color = (192, 203, 229)  # Default color
+    
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["bullet_tracer_color"] = rgb_color
+    Active_Config["bullet_tracer_color"] = rgb_color
+    save_settings()
+    debug_log(f"Bullet tracer color changed to: {rgb_color}", "INFO")
+
+
+def on_bullet_tracer_fade_color_change(sender, value):
+    """Handle Bullet Tracer fade color picker change."""
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        rgb_color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
+    else:
+        rgb_color = (0, 0, 0)  # Default black
+    
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["bullet_tracer_fade_color"] = rgb_color
+    Active_Config["bullet_tracer_fade_color"] = rgb_color
+    save_settings()
+    debug_log(f"Bullet tracer fade color changed to: {rgb_color}", "INFO")
+
+
+def on_bullet_tracer_fade_duration_change(sender, value):
+    """Handle Bullet Tracer fade duration slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["bullet_tracer_fade_duration"] = value
+    Active_Config["bullet_tracer_fade_duration"] = value
+    save_settings()
+    debug_log(f"Bullet tracer fade duration changed to: {value}s", "INFO")
+
+
+def on_bullet_tracer_thickness_change(sender, value):
+    """Handle Bullet Tracer thickness slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["bullet_tracer_thickness"] = value
+    Active_Config["bullet_tracer_thickness"] = value
+    save_settings()
+    debug_log(f"Bullet tracer thickness changed to: {value}", "INFO")
+
+
+def on_bullet_tracer_max_count_change(sender, value):
+    """Handle Bullet Tracer max count slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["bullet_tracer_max_count"] = int(value)
+    Active_Config["bullet_tracer_max_count"] = int(value)
+    save_settings()
+    debug_log(f"Bullet tracer max count changed to: {int(value)}", "INFO")
+
+
+def on_bullet_tracer_length_change(sender, value):
+    """Handle Bullet Tracer length slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["bullet_tracer_length"] = value
+    Active_Config["bullet_tracer_length"] = value
+    save_settings()
+    debug_log(f"Bullet tracer length changed to: {value}m", "INFO")
+
+
 def on_spotted_esp_toggle(sender, value):
     """Handle Spotted ESP toggle."""
     if esp_overlay["settings"]:
@@ -7389,18 +9591,29 @@ def on_custom_crosshair_toggle(sender, value):
         esp_overlay["settings"]["custom_crosshair"] = value
         Active_Config["custom_crosshair"] = value
         save_settings()
-        debug_log(f"Custom Crosshair {'enabled' if value else 'disabled'}", "INFO")
-
-
-def on_targeting_type_change(sender, value):
-    """Handle targeting type dropdown change."""
-    if esp_overlay["settings"]:
-        # "Enemies Only" = 0, "All Players" = 1
-        targeting_type = 0 if value == "Enemies Only" else 1
-        esp_overlay["settings"]["targeting_type"] = targeting_type
-        Active_Config["targeting_type"] = targeting_type
-        save_settings()
-        debug_log(f"Targeting type changed to: {value}", "INFO")
+    
+    # Show/hide crosshair options based on toggle
+    crosshair_options = [
+        "slider_custom_crosshair_scale",
+        "slider_custom_crosshair_thickness", 
+        "combo_custom_crosshair_shape"
+    ]
+    
+    show_tips = Active_Config.get("show_tooltips", True)
+    for option in crosshair_options:
+        if dpg.does_item_exist(option):
+            dpg.configure_item(option, show=value)
+    
+    # Update tooltip visibility
+    tooltip_options = [
+        "tooltip_custom_crosshair_scale",
+        "tooltip_custom_crosshair_thickness",
+        "tooltip_custom_crosshair_shape"
+    ]
+    
+    for tooltip in tooltip_options:
+        if dpg.does_item_exist(tooltip):
+            dpg.configure_item(tooltip, show=value and show_tips)
 
 
 def on_lines_position_change(sender, value):
@@ -7428,8 +9641,18 @@ def on_antialiasing_change(sender, value):
         debug_log("ESP overlay restarted with new antialiasing", "SUCCESS")
 
 
+def on_health_position_change(sender, value):
+    """Handle health position change."""
+    Active_Config["health_position"] = value
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["health_position"] = value
+    save_settings()
+    debug_log(f"Health position changed to: {value}", "INFO")
+    update_esp_preview()
+
+
 def on_healthbar_type_change(sender, value):
-    """Handle healthbar type change (Vertical/Horizontal)."""
+    """Handle healthbar type change (Bars/Text)."""
     Active_Config["healthbar_type"] = value
     if esp_overlay["settings"]:
         esp_overlay["settings"]["healthbar_type"] = value
@@ -7446,6 +9669,17 @@ def on_box_type_change(sender, value):
     save_settings()
     debug_log(f"Box type changed to: {value}", "INFO")
     update_esp_preview()
+
+
+def on_targeting_type_change(sender, value):
+    """Handle targeting type change (Enemies Only/All Players)."""
+    # "Enemies Only" = 0, "All Players" = 1
+    targeting_type = 0 if value == "Enemies Only" else 1
+    Active_Config["targeting_type"] = targeting_type
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["targeting_type"] = targeting_type
+    save_settings()
+    debug_log(f"Targeting type changed to: {value}", "INFO")
 
 
 def on_box_thickness_change(sender, value):
@@ -7626,14 +9860,52 @@ def on_radar_y_change(sender, value):
     debug_log(f"Radar Y position changed to: {value}", "INFO")
 
 
+def save_radar_backup():
+    """Save current radar settings to backup file for restoration later."""
+    try:
+        radar_backup = {
+            "radar_size": Active_Config.get("radar_size", 200),
+            "radar_opacity": Active_Config.get("radar_opacity", 180),
+            "radar_x": Active_Config.get("radar_x", 0),
+            "radar_y": Active_Config.get("radar_y", 0),
+            "radar_scale": Active_Config.get("radar_scale", 40.0)
+        }
+        with open(RADAR_BACKUP_PATH, 'w') as f:
+            json.dump(radar_backup, f, indent=4)
+        debug_log("Radar settings backed up to radar_backup.json", "SUCCESS")
+        return True
+    except Exception as e:
+        debug_log(f"Failed to save radar backup: {str(e)}", "ERROR")
+        return False
+
+
+def load_radar_backup():
+    """Load radar settings from backup file."""
+    if os.path.exists(RADAR_BACKUP_PATH):
+        try:
+            with open(RADAR_BACKUP_PATH, 'r') as f:
+                radar_backup = json.load(f)
+            debug_log("Radar settings loaded from radar_backup.json", "SUCCESS")
+            return radar_backup
+        except Exception as e:
+            debug_log(f"Failed to load radar backup: {str(e)}", "ERROR")
+            return None
+    else:
+        debug_log("No radar backup found", "INFO")
+        return None
+
+
 def on_radar_overlap_game_toggle(sender, value):
     """Handle radar overlap game toggle."""
     if esp_overlay["settings"]:
         esp_overlay["settings"]["radar_overlap_game"] = value
     Active_Config["radar_overlap_game"] = value
     
-    # When enabling overlap mode, set the locked values
+    # When enabling overlap mode, save current settings then set locked values
     if value:
+        # Save current radar settings to backup file before overwriting
+        save_radar_backup()
+        
         # Lock to game radar position values
         locked_values = {
             "radar_size": 250,
@@ -7660,9 +9932,50 @@ def on_radar_overlap_game_toggle(sender, value):
             dpg.set_value("slider_radar_y", -390)
         if dpg.does_item_exist("slider_radar_scale"):
             dpg.set_value("slider_radar_scale", 15.0)
+    else:
+        # When disabling overlap mode, restore saved radar settings
+        radar_backup = load_radar_backup()
+        if radar_backup:
+            # Restore settings from backup
+            for key, backup_value in radar_backup.items():
+                Active_Config[key] = backup_value
+                if esp_overlay["settings"]:
+                    esp_overlay["settings"][key] = backup_value
+            
+            # Update UI sliders to show restored values
+            if dpg.does_item_exist("slider_radar_size"):
+                dpg.set_value("slider_radar_size", radar_backup.get("radar_size", 200))
+            if dpg.does_item_exist("slider_radar_opacity"):
+                dpg.set_value("slider_radar_opacity", radar_backup.get("radar_opacity", 180))
+            if dpg.does_item_exist("slider_radar_x"):
+                dpg.set_value("slider_radar_x", radar_backup.get("radar_x", 0))
+            if dpg.does_item_exist("slider_radar_y"):
+                dpg.set_value("slider_radar_y", radar_backup.get("radar_y", 0))
+            if dpg.does_item_exist("slider_radar_scale"):
+                dpg.set_value("slider_radar_scale", radar_backup.get("radar_scale", 40.0))
+            
+            debug_log("Radar settings restored from backup", "SUCCESS")
     
     save_settings()
     debug_log(f"Radar overlap game mode: {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_radar_spotted_only_toggle(sender, value):
+    """Handle radar spotted only toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["radar_spotted_only"] = value
+    Active_Config["radar_spotted_only"] = value
+    save_settings()
+    debug_log(f"Radar spotted only: {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_radar_use_esp_distance_toggle(sender, value):
+    """Handle radar use ESP distance filter toggle."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["radar_use_esp_distance"] = value
+    Active_Config["radar_use_esp_distance"] = value
+    save_settings()
+    debug_log(f"Radar use ESP distance filter: {'enabled' if value else 'disabled'}", "INFO")
 
 
 # =============================================================================
@@ -7732,24 +10045,14 @@ def on_team_skeleton_color_change(sender, value):
     debug_log(f"Team skeleton color changed to: {color}", "INFO")
 
 
-def on_enemy_head_dot_color_change(sender, value):
-    """Handle enemy head dot color change."""
+def on_head_hitbox_color_change(sender, value):
+    """Handle head hitbox color change."""
     color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
     if esp_overlay["settings"]:
-        esp_overlay["settings"]["enemy_head_dot_color"] = color
-    Active_Config["enemy_head_dot_color"] = color
+        esp_overlay["settings"]["head_hitbox_color"] = color
+    Active_Config["head_hitbox_color"] = color
     save_settings()
-    debug_log(f"Enemy head dot color changed to: {color}", "INFO")
-
-
-def on_team_head_dot_color_change(sender, value):
-    """Handle team head dot color change."""
-    color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
-    if esp_overlay["settings"]:
-        esp_overlay["settings"]["team_head_dot_color"] = color
-    Active_Config["team_head_dot_color"] = color
-    save_settings()
-    debug_log(f"Team head dot color changed to: {color}", "INFO")
+    debug_log(f"Head hitbox color changed to: {color}", "INFO")
 
 
 def on_spotted_color_change(sender, value):
@@ -7800,6 +10103,16 @@ def on_weapon_text_size_change(sender, value):
     save_settings()
     update_esp_preview()  # Update the preview with new text size
     debug_log(f"Weapon text size changed to: {value}", "INFO")
+
+
+def on_health_text_size_change(sender, value):
+    """Handle health text size slider change."""
+    if esp_overlay["settings"]:
+        esp_overlay["settings"]["health_text_size"] = value
+    Active_Config["health_text_size"] = value
+    save_settings()
+    update_esp_preview()  # Update the preview with new text size
+    debug_log(f"Health text size changed to: {value}", "INFO")
 
 
 def on_radar_bg_color_change(sender, value):
@@ -8047,6 +10360,8 @@ def on_aimbot_targeting_deadzone_color_change(sender, value):
     color = (int(value[0] * 255), int(value[1] * 255), int(value[2] * 255))
     if esp_overlay["settings"]:
         esp_overlay["settings"]["aimbot_targeting_deadzone_color"] = color
+    if aimbot_state["settings"]:
+        aimbot_state["settings"]["aimbot_targeting_deadzone_color"] = color
     Active_Config["aimbot_targeting_deadzone_color"] = color
     save_settings()
     debug_log(f"Aimbot targeting deadzone color changed to: {color}", "INFO")
@@ -8182,37 +10497,33 @@ def on_aimbot_snapline_color_change(sender, value):
 
 def on_triggerbot_toggle(sender, value):
     """Handle triggerbot enable/disable toggle."""
+    set_triggerbot_setting("triggerbot_enabled", value)
     if triggerbot_state["settings"]:
         triggerbot_state["settings"]["triggerbot_enabled"] = value
-    Active_Config["triggerbot_enabled"] = value
-    save_settings()
     debug_log(f"Triggerbot {'enabled' if value else 'disabled'}", "INFO")
 
 
 def on_triggerbot_first_shot_delay_change(sender, value):
     """Handle triggerbot first shot delay change."""
+    set_triggerbot_setting("triggerbot_first_shot_delay", value)
     if triggerbot_state["settings"]:
         triggerbot_state["settings"]["triggerbot_first_shot_delay"] = value
-    Active_Config["triggerbot_first_shot_delay"] = value
-    save_settings()
     debug_log(f"Triggerbot first shot delay changed to: {value}ms", "INFO")
 
 
 def on_triggerbot_between_shots_delay_change(sender, value):
     """Handle triggerbot between shots delay change."""
+    set_triggerbot_setting("triggerbot_between_shots_delay", value)
     if triggerbot_state["settings"]:
         triggerbot_state["settings"]["triggerbot_between_shots_delay"] = value
-    Active_Config["triggerbot_between_shots_delay"] = value
-    save_settings()
     debug_log(f"Triggerbot between shots delay changed to: {value}ms", "INFO")
 
 
 def on_triggerbot_burst_mode_toggle(sender, value):
     """Handle triggerbot burst mode toggle."""
+    set_triggerbot_setting("triggerbot_burst_mode", value)
     if triggerbot_state["settings"]:
         triggerbot_state["settings"]["triggerbot_burst_mode"] = value
-    Active_Config["triggerbot_burst_mode"] = value
-    save_settings()
     # Show/hide burst shots slider and tooltip
     show_tips = Active_Config.get("show_tooltips", True)
     try:
@@ -8225,20 +10536,48 @@ def on_triggerbot_burst_mode_toggle(sender, value):
 
 def on_triggerbot_burst_shots_change(sender, value):
     """Handle triggerbot burst shots change."""
+    set_triggerbot_setting("triggerbot_burst_shots", value)
     if triggerbot_state["settings"]:
         triggerbot_state["settings"]["triggerbot_burst_shots"] = value
-    Active_Config["triggerbot_burst_shots"] = value
-    save_settings()
     debug_log(f"Triggerbot burst shots changed to: {value}", "INFO")
 
 
 def on_triggerbot_head_only_toggle(sender, value):
     """Handle triggerbot head-only mode toggle."""
+    set_triggerbot_setting("triggerbot_head_only", value)
     if triggerbot_state["settings"]:
         triggerbot_state["settings"]["triggerbot_head_only"] = value
-    Active_Config["triggerbot_head_only"] = value
-    save_settings()
     debug_log(f"Triggerbot head-only mode {'enabled' if value else 'disabled'}", "INFO")
+
+
+def on_triggerbot_preset_change(sender, value):
+    """Handle triggerbot weapon preset change."""
+    Active_Config["current_triggerbot_preset"] = value
+    save_settings()
+    # Update UI to reflect new preset settings
+    update_triggerbot_ui_from_preset()
+    # Update favorite checkbox
+    update_triggerbot_favorite_checkbox()
+    debug_log(f"Triggerbot preset changed to: {value}", "INFO")
+
+
+def on_triggerbot_favorite_toggle(sender, value):
+    """Handle favorite toggle for current triggerbot preset."""
+    current_preset = Active_Config.get("current_triggerbot_preset", "All weapons")
+    favorites = Active_Config.get("favorite_triggerbot_presets", [])
+    
+    if value:
+        if current_preset not in favorites:
+            favorites.append(current_preset)
+    else:
+        if current_preset in favorites:
+            favorites.remove(current_preset)
+    
+    Active_Config["favorite_triggerbot_presets"] = favorites
+    save_settings()
+    # Update dropdown items
+    update_triggerbot_dropdown_items()
+    debug_log(f"Triggerbot preset '{current_preset}' {'favorited' if value else 'unfavorited'}", "INFO")
 
 
 def on_triggerbot_key_button():
@@ -8390,6 +10729,18 @@ def on_acs_key_button():
         pass
 
 
+def on_bhop_key_button():
+    """Handle bhop key bind button click."""
+    global keybind_listener
+    keybind_listener["listening"] = True
+    keybind_listener["target"] = "bhop_key"
+    # Update button text to show we're listening
+    try:
+        dpg.set_item_label("btn_bind_bhop_cheat", "Press any key...")
+    except:
+        pass
+
+
 def on_colorway_change(sender, value):
     """Handle colorway dropdown change."""
     Active_Config["menu_colorway"] = value
@@ -8517,9 +10868,21 @@ def apply_colorway(colorway_name):
     Args:
         colorway_name: Name of the colorway from UI_COLORWAYS
     """
+    global rainbow_active, rainbow_hue
+    
     if colorway_name not in UI_COLORWAYS:
         debug_log(f"Colorway '{colorway_name}' not found, using Default", "WARNING")
         colorway_name = "Default"
+    
+    # Handle rainbow colorway specially
+    if colorway_name == "Rainbow":
+        rainbow_active = True
+        rainbow_hue = 0.0  # Start with red
+        update_rainbow_colors()
+        return
+    
+    # Disable rainbow if switching away from it
+    rainbow_active = False
     
     colors = UI_COLORWAYS[colorway_name]
     
@@ -8586,6 +10949,112 @@ def apply_colorway(colorway_name):
             
             # Border
             dpg.add_theme_color(dpg.mvThemeCol_Border, colors["frame_bg"])
+    
+    # Bind the theme globally
+    dpg.bind_theme("global_theme")
+
+
+def update_rainbow_colors():
+    """
+    Update the rainbow colorway colors by cycling through the hue spectrum.
+    This creates a smooth rainbow animation effect.
+    """
+    global rainbow_hue
+    
+    # Increment hue (cycle through colors)
+    rainbow_hue += 0.01  # Adjust speed here (smaller = slower)
+    if rainbow_hue >= 1.0:
+        rainbow_hue = 0.0
+    
+    # Convert HSV to RGB for accent colors
+    # Use fixed saturation and value, vary hue
+    saturation = 0.8
+    value = 0.7
+    
+    # Generate rainbow colors for different UI elements
+    def hsv_to_rgb_tuple(h, s, v):
+        r, g, b = colorsys.hsv_to_rgb(h, s, v)
+        return (int(r * 255), int(g * 255), int(b * 255), 255)
+    
+    # All elements use the same hue for synchronized rainbow effect
+    # Vary saturation and value for visual hierarchy
+    title_active_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value)
+    frame_hovered_color = hsv_to_rgb_tuple(rainbow_hue, saturation * 0.7, value * 0.9)
+    frame_active_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value)
+    button_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value)
+    button_hovered_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value * 1.2)
+    button_active_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value * 1.4)
+    tab_hovered_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value)
+    tab_active_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value * 1.1)
+    check_mark_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value * 1.3)
+    slider_grab_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value * 1.1)
+    header_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value)
+    header_hovered_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value * 1.1)
+    header_active_color = hsv_to_rgb_tuple(rainbow_hue, saturation, value * 1.2)
+    
+    # Delete existing theme if it exists
+    try:
+        if dpg.does_item_exist("global_theme"):
+            dpg.delete_item("global_theme")
+    except:
+        pass
+    
+    # Create new theme with rainbow colors
+    with dpg.theme(tag="global_theme"):
+        with dpg.theme_component(dpg.mvAll):
+            # Window background (stays black)
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (0, 0, 0, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (0, 0, 0, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_PopupBg, (0, 0, 0, 255))
+            
+            # Title bar
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, (10, 10, 10, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, title_active_color)
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgCollapsed, (10, 10, 10, 255))
+            
+            # Frame (input boxes, etc.)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (30, 30, 30, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, frame_hovered_color)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, frame_active_color)
+            
+            # Buttons
+            dpg.add_theme_color(dpg.mvThemeCol_Button, button_color)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, button_hovered_color)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, button_active_color)
+            
+            # Tabs
+            dpg.add_theme_color(dpg.mvThemeCol_Tab, (20, 20, 20, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabHovered, tab_hovered_color)
+            dpg.add_theme_color(dpg.mvThemeCol_TabActive, tab_active_color)
+            dpg.add_theme_color(dpg.mvThemeCol_TabUnfocused, (20, 20, 20, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabUnfocusedActive, tab_active_color)
+            
+            # Text (stays white)
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255, 255))
+            
+            # Checkmark
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, check_mark_color)
+            
+            # Sliders
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, slider_grab_color)
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, slider_grab_color)
+            
+            # Headers (collapsing headers, tree nodes)
+            dpg.add_theme_color(dpg.mvThemeCol_Header, header_color)
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, header_hovered_color)
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, header_active_color)
+            
+            # Separator
+            dpg.add_theme_color(dpg.mvThemeCol_Separator, (30, 30, 30, 255))
+            
+            # Scrollbar
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg, (0, 0, 0, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, button_color)
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabHovered, button_hovered_color)
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabActive, button_active_color)
+            
+            # Border
+            dpg.add_theme_color(dpg.mvThemeCol_Border, (30, 30, 30, 255))
     
     # Bind the theme globally
     dpg.bind_theme("global_theme")
@@ -8723,18 +11192,6 @@ def on_aimbot_toggle_key_button():
         pass
 
 
-def on_head_only_toggle_key_button():
-    """Handle head-only toggle key bind button click."""
-    global keybind_listener
-    keybind_listener["listening"] = True
-    keybind_listener["target"] = "head_only_toggle_key"
-    # Update button text to show we're listening
-    try:
-        dpg.set_item_label("btn_bind_head_only_toggle_cheat", "Press any key...")
-    except:
-        pass
-
-
 def on_rcs_toggle_key_button():
     """Handle RCS toggle key bind button click."""
     global keybind_listener
@@ -8801,18 +11258,15 @@ def draw_preview_player(x, y, name, settings, is_enemy=True):
             box_color = settings.get('enemy_box_color', (196, 30, 58))
             snapline_color = settings.get('enemy_snapline_color', (196, 30, 58))
             skeleton_color = settings.get('enemy_skeleton_color', (255, 255, 255))
-            head_dot_color = settings.get('enemy_head_dot_color', (255, 255, 0))
         else:
             box_color = settings.get('team_box_color', (71, 167, 106))
             snapline_color = settings.get('team_snapline_color', (71, 167, 106))
             skeleton_color = settings.get('team_skeleton_color', (255, 255, 255))
-            head_dot_color = settings.get('team_head_dot_color', (255, 255, 0))
         
         # Convert colors to Dear PyGui format (0-255)
         box_color = tuple(int(c) for c in box_color)
         snapline_color = tuple(int(c) for c in snapline_color)
         skeleton_color = tuple(int(c) for c in skeleton_color)
-        head_dot_color = tuple(int(c) for c in head_dot_color)
         
         # Realistic player proportions (based on real ESP calculations)
         # deltaZ represents the screen space distance from head to feet
@@ -8859,9 +11313,11 @@ def draw_preview_player(x, y, name, settings, is_enemy=True):
                 dpg.draw_line((rightX, head_y), (rightX - depth_offset//2, head_y - depth_offset), 
                              color=box_color, thickness=thickness, parent="esp_preview_canvas")
         
-        # Draw health and armor bars
-        healthbar_type = settings.get('healthbar_type', 'Vertical Left')
+        # Draw health and armor bars/text
+        health_position = settings.get('health_position', 'Vertical Left')
+        healthbar_type = settings.get('healthbar_type', 'Bars')
         bar_thickness = 3
+        text_size = settings.get('health_text_size', 12.0)
         
         # Sample values
         health = 85 if is_enemy else 100
@@ -8870,7 +11326,27 @@ def draw_preview_player(x, y, name, settings, is_enemy=True):
         armor_percent = armor / 100.0
         
         if settings.get('health_bar', True):
-            if healthbar_type == 'Vertical Left':
+            if healthbar_type == 'Text':
+                # Text mode - simplified for preview
+                health_text = f"{health}"
+                armor_text = f"{armor}" if armor > 0 else ""
+                
+                # Determine health text color based on percentage (detailed gradient)
+                if hp_percent >= 0.8:
+                    health_color = (0, 255, 0)  # Bright green for 80-100%
+                elif hp_percent >= 0.6:
+                    health_color = (128, 255, 0)  # Light green for 60-79%
+                elif hp_percent >= 0.4:
+                    health_color = (255, 255, 0)  # Yellow for 40-59%
+                elif hp_percent >= 0.2:
+                    health_color = (255, 128, 0)  # Orange for 20-39%
+                else:
+                    health_color = (255, 0, 0)  # Red for 0-19%
+                
+                text_x = leftX + box_width / 2 - len(health_text) * 3
+                text_y = head_y - 15
+                dpg.draw_text((text_x, text_y), f"{health_text}/{armor_text}", size=text_size, color=health_color, parent="esp_preview_canvas")
+            elif health_position == 'Vertical Left':
                 # Health bar on the left
                 hp_height = int(deltaZ * hp_percent)
                 hp_bar_x = leftX - 6
@@ -8878,7 +11354,16 @@ def draw_preview_player(x, y, name, settings, is_enemy=True):
                 dpg.draw_rectangle((hp_bar_x, head_y), (hp_bar_x + bar_thickness, feet_y), 
                                  color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
                 # Health fill
-                health_color = (0, 255, 0) if hp_percent > 0.5 else (255, 255, 0) if hp_percent > 0.25 else (255, 0, 0)
+                if hp_percent >= 0.8:
+                    health_color = (0, 255, 0)  # Bright green for 80-100%
+                elif hp_percent >= 0.6:
+                    health_color = (128, 255, 0)  # Light green for 60-79%
+                elif hp_percent >= 0.4:
+                    health_color = (255, 255, 0)  # Yellow for 40-59%
+                elif hp_percent >= 0.2:
+                    health_color = (255, 128, 0)  # Orange for 20-39%
+                else:
+                    health_color = (255, 0, 0)  # Red for 0-19%
                 dpg.draw_rectangle((hp_bar_x, feet_y - hp_height), (hp_bar_x + bar_thickness, feet_y), 
                                  color=health_color, fill=True, parent="esp_preview_canvas")
                 
@@ -8891,13 +11376,22 @@ def draw_preview_player(x, y, name, settings, is_enemy=True):
                     dpg.draw_rectangle((armor_bar_x, feet_y - armor_height), (armor_bar_x + bar_thickness, feet_y), 
                                      color=(0, 100, 255), fill=True, parent="esp_preview_canvas")
                                      
-            elif healthbar_type == 'Vertical Right':
+            elif health_position == 'Vertical Right':
                 # Health bar on the right
                 hp_height = int(deltaZ * hp_percent)
                 hp_bar_x = rightX + 3
                 dpg.draw_rectangle((hp_bar_x, head_y), (hp_bar_x + bar_thickness, feet_y), 
                                  color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
-                health_color = (0, 255, 0) if hp_percent > 0.5 else (255, 255, 0) if hp_percent > 0.25 else (255, 0, 0)
+                if hp_percent >= 0.8:
+                    health_color = (0, 255, 0)  # Bright green for 80-100%
+                elif hp_percent >= 0.6:
+                    health_color = (128, 255, 0)  # Light green for 60-79%
+                elif hp_percent >= 0.4:
+                    health_color = (255, 255, 0)  # Yellow for 40-59%
+                elif hp_percent >= 0.2:
+                    health_color = (255, 128, 0)  # Orange for 20-39%
+                else:
+                    health_color = (255, 0, 0)  # Red for 0-19%
                 dpg.draw_rectangle((hp_bar_x, feet_y - hp_height), (hp_bar_x + bar_thickness, feet_y), 
                                  color=health_color, fill=True, parent="esp_preview_canvas")
                 
@@ -8910,13 +11404,23 @@ def draw_preview_player(x, y, name, settings, is_enemy=True):
                     dpg.draw_rectangle((armor_bar_x, feet_y - armor_height), (armor_bar_x + bar_thickness, feet_y), 
                                      color=(0, 100, 255), fill=True, parent="esp_preview_canvas")
                                      
-            elif healthbar_type == 'Horizontal Above':
+            elif health_position == 'Horizontal Above':
                 # Health bar above head
                 hp_width = int(box_width * hp_percent)
                 bar_y = head_y - 7
                 dpg.draw_rectangle((leftX, bar_y), (rightX, bar_y + bar_thickness), 
                                  color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
                 health_color = (0, 255, 0) if hp_percent > 0.5 else (255, 255, 0) if hp_percent > 0.25 else (255, 0, 0)
+                if hp_percent >= 0.8:
+                    health_color = (0, 255, 0)  # Bright green for 80-100%
+                elif hp_percent >= 0.6:
+                    health_color = (128, 255, 0)  # Light green for 60-79%
+                elif hp_percent >= 0.4:
+                    health_color = (255, 255, 0)  # Yellow for 40-59%
+                elif hp_percent >= 0.2:
+                    health_color = (255, 128, 0)  # Orange for 20-39%
+                else:
+                    health_color = (255, 0, 0)  # Red for 0-19%
                 dpg.draw_rectangle((leftX, bar_y), (leftX + hp_width, bar_y + bar_thickness), 
                                  color=health_color, fill=True, parent="esp_preview_canvas")
                 
@@ -8929,13 +11433,22 @@ def draw_preview_player(x, y, name, settings, is_enemy=True):
                     dpg.draw_rectangle((leftX, armor_bar_y), (leftX + armor_width, armor_bar_y + bar_thickness), 
                                      color=(0, 100, 255), fill=True, parent="esp_preview_canvas")
                                      
-            elif healthbar_type == 'Horizontal Below':
+            elif health_position == 'Horizontal Below':
                 # Health bar below feet
                 hp_width = int(box_width * hp_percent)
                 bar_y = feet_y + 3
                 dpg.draw_rectangle((leftX, bar_y), (rightX, bar_y + bar_thickness), 
                                  color=(64, 64, 64), fill=True, parent="esp_preview_canvas")
-                health_color = (0, 255, 0) if hp_percent > 0.5 else (255, 255, 0) if hp_percent > 0.25 else (255, 0, 0)
+                if hp_percent >= 0.8:
+                    health_color = (0, 255, 0)  # Bright green for 80-100%
+                elif hp_percent >= 0.6:
+                    health_color = (128, 255, 0)  # Light green for 60-79%
+                elif hp_percent >= 0.4:
+                    health_color = (255, 255, 0)  # Yellow for 40-59%
+                elif hp_percent >= 0.2:
+                    health_color = (255, 128, 0)  # Orange for 20-39%
+                else:
+                    health_color = (255, 0, 0)  # Red for 0-19%
                 dpg.draw_rectangle((leftX, bar_y), (leftX + hp_width, bar_y + bar_thickness), 
                                  color=health_color, fill=True, parent="esp_preview_canvas")
                 
@@ -9006,13 +11519,10 @@ def draw_preview_player(x, y, name, settings, is_enemy=True):
             dpg.draw_line(knees_left, feet_left, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
             dpg.draw_line(knees_right, feet_right, color=skeleton_color, thickness=thickness, parent="esp_preview_canvas")
         
-        # Draw head dot if enabled
-        if settings.get('head_dot', True):
-            # Position at head center
-            dpg.draw_circle((x, head_y + int(8 * scale_factor)), 4, color=head_dot_color, fill=True, parent="esp_preview_canvas")
-        
-        # Calculate text Y offset based on healthbar type (like real ESP)
-        healthbar_type = settings.get('healthbar_type', 'Vertical Left')
+        # Calculate text Y offset based on health position and type (like real ESP)
+        health_position = settings.get('health_position', 'Vertical Left')
+        healthbar_type = settings.get('healthbar_type', 'Bars')
+        text_size = settings.get('health_text_size', 12.0)
         scale_factor = deltaZ / 80.0  # Scale factor for bigger preview
         
         # Get text sizes for positioning calculations
@@ -9175,7 +11685,7 @@ def create_esp_tab():
                 
                 # Individual feature toggles - load from Active_Config
                 dpg.add_checkbox(
-                    label="Box ESP", 
+                    label="Boxes", 
                     default_value=Active_Config.get("box_esp", True),
                     tag="chk_box_esp",
                     callback=on_box_esp_toggle
@@ -9245,37 +11755,27 @@ def create_esp_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_hide_unknown_weapons")
                 
                 dpg.add_checkbox(
-                    label="Health Bar", 
+                    label="Health", 
                     default_value=Active_Config.get("health_bar", True),
                     tag="chk_health_bar",
                     callback=on_health_bar_toggle
                 )
                 with dpg.tooltip("chk_health_bar", tag="tooltip_health_bar", show=show_tips):
-                    dpg.add_text("Show health bar on left side of box")
+                    dpg.add_text("Show health and armor bars/text")
                 ALL_TOOLTIP_TAGS.append("tooltip_health_bar")
                 
                 dpg.add_checkbox(
-                    label="Armor Bar", 
-                    default_value=Active_Config.get("armor_bar", True),
-                    tag="chk_armor_bar",
-                    callback=on_armor_bar_toggle
+                    label="Head Hitbox", 
+                    default_value=Active_Config.get("draw_head_hitbox", False),
+                    tag="chk_head_hitbox",
+                    callback=on_head_hitbox_toggle
                 )
-                with dpg.tooltip("chk_armor_bar", tag="tooltip_armor_bar", show=show_tips):
-                    dpg.add_text("Show armor bar on right side of box")
-                ALL_TOOLTIP_TAGS.append("tooltip_armor_bar")
+                with dpg.tooltip("chk_head_hitbox", tag="tooltip_head_hitbox", show=show_tips):
+                    dpg.add_text("Draw circle showing head hitbox zone")
+                ALL_TOOLTIP_TAGS.append("tooltip_head_hitbox")
                 
                 dpg.add_checkbox(
-                    label="Head Dot", 
-                    default_value=Active_Config.get("head_dot", True),
-                    tag="chk_head_dot",
-                    callback=on_head_dot_toggle
-                )
-                with dpg.tooltip("chk_head_dot", tag="tooltip_head_dot", show=show_tips):
-                    dpg.add_text("Draw a dot at player's head position")
-                ALL_TOOLTIP_TAGS.append("tooltip_head_dot")
-                
-                dpg.add_checkbox(
-                    label="Bomb ESP", 
+                    label="Bomb", 
                     default_value=Active_Config.get("bomb_esp", True),
                     tag="chk_bomb_esp",
                     callback=on_bomb_esp_toggle
@@ -9285,7 +11785,7 @@ def create_esp_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_bomb_esp")
                 
                 dpg.add_checkbox(
-                    label="Footstep ESP", 
+                    label="Footsteps", 
                     default_value=Active_Config.get("footstep_esp", False),
                     tag="chk_footstep_esp",
                     callback=on_footstep_esp_toggle
@@ -9313,16 +11813,6 @@ def create_esp_tab():
                 with dpg.tooltip("chk_hide_spotted_players", tag="tooltip_hide_spotted_players", show=show_tips):
                     dpg.add_text("Hide ESP elements (boxes, lines, skeleton, name, bars, dot) for spotted players")
                 ALL_TOOLTIP_TAGS.append("tooltip_hide_spotted_players")
-                
-                dpg.add_checkbox(
-                    label="Custom Crosshair", 
-                    default_value=Active_Config.get("custom_crosshair", False),
-                    tag="chk_custom_crosshair",
-                    callback=on_custom_crosshair_toggle
-                )
-                with dpg.tooltip("chk_custom_crosshair", tag="tooltip_custom_crosshair", show=show_tips):
-                    dpg.add_text("Show custom crosshair at screen center")
-                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair")
             
             # =========== OPTIONS SUBTAB ===========
             with dpg.tab(label="Options"):
@@ -9354,16 +11844,28 @@ def create_esp_tab():
                     dpg.add_text("Change causes overlay to refresh")
                 ALL_TOOLTIP_TAGS.append("tooltip_antialiasing")
                 
-                # Healthbar type dropdown
+                # Health position dropdown
                 dpg.add_combo(
                     items=["Vertical Left", "Vertical Right", "Horizontal Above", "Horizontal Below"],
-                    default_value=Active_Config.get("healthbar_type", "Vertical Left"),
+                    default_value=Active_Config.get("health_position", "Vertical Left"),
+                    label="Health Position",
+                    tag="combo_health_position",
+                    callback=on_health_position_change
+                )
+                with dpg.tooltip("combo_health_position", tag="tooltip_health_position", show=show_tips):
+                    dpg.add_text("Position of health/armor bars/text relative to player box")
+                ALL_TOOLTIP_TAGS.append("tooltip_health_position")
+                
+                # Healthbar type dropdown (Bars vs Text)
+                dpg.add_combo(
+                    items=["Bars", "Text"],
+                    default_value=Active_Config.get("healthbar_type", "Bars"),
                     label="Healthbar Type",
                     tag="combo_healthbar_type",
                     callback=on_healthbar_type_change
                 )
                 with dpg.tooltip("combo_healthbar_type", tag="tooltip_healthbar_type", show=show_tips):
-                    dpg.add_text("Position of health/armor bars relative to player box")
+                    dpg.add_text("Display health/armor as bars or percentage text")
                 ALL_TOOLTIP_TAGS.append("tooltip_healthbar_type")
                 
                 # Box type dropdown (2D/3D)
@@ -9380,130 +11882,6 @@ def create_esp_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_box_type")
                 
                 dpg.add_separator()
-                dpg.add_text("Line Thickness")
-                
-                dpg.add_slider_float(
-                    label="Box",
-                    default_value=Active_Config.get("box_thickness", 1.5),
-                    min_value=1.0,
-                    max_value=5.0,
-                    tag="slider_box_thickness",
-                    callback=on_box_thickness_change,
-                    format="%.1f"
-                )
-                with dpg.tooltip("slider_box_thickness", tag="tooltip_box_thickness", show=show_tips):
-                    dpg.add_text("Thickness of ESP box outlines")
-                ALL_TOOLTIP_TAGS.append("tooltip_box_thickness")
-                
-                dpg.add_slider_float(
-                    label="Snaplines",
-                    default_value=Active_Config.get("snapline_thickness", 1.5),
-                    min_value=1.0,
-                    max_value=5.0,
-                    tag="slider_snapline_thickness",
-                    callback=on_snapline_thickness_change,
-                    format="%.1f"
-                )
-                with dpg.tooltip("slider_snapline_thickness", tag="tooltip_snapline_thickness", show=show_tips):
-                    dpg.add_text("Thickness of snap lines to players")
-                ALL_TOOLTIP_TAGS.append("tooltip_snapline_thickness")
-                
-                dpg.add_slider_float(
-                    label="Skeleton",
-                    default_value=Active_Config.get("skeleton_thickness", 1.5),
-                    min_value=1.0,
-                    max_value=5.0,
-                    tag="slider_skeleton_thickness",
-                    callback=on_skeleton_thickness_change,
-                    format="%.1f"
-                )
-                with dpg.tooltip("slider_skeleton_thickness", tag="tooltip_skeleton_thickness", show=show_tips):
-                    dpg.add_text("Thickness of skeleton bone lines")
-                ALL_TOOLTIP_TAGS.append("tooltip_skeleton_thickness")
-                
-                dpg.add_separator()
-                dpg.add_text("Text Size")
-                
-                dpg.add_slider_float(
-                    label="Spotted Status",
-                    default_value=Active_Config.get("spotted_text_size", 12.0),
-                    min_value=8.0,
-                    max_value=24.0,
-                    tag="slider_spotted_text_size",
-                    callback=on_spotted_text_size_change,
-                    format="%.1f"
-                )
-                with dpg.tooltip("slider_spotted_text_size", tag="tooltip_spotted_text_size", show=show_tips):
-                    dpg.add_text("Font size for spotted status text")
-                ALL_TOOLTIP_TAGS.append("tooltip_spotted_text_size")
-                
-                dpg.add_slider_float(
-                    label="Nickname",
-                    default_value=Active_Config.get("name_text_size", 14.0),
-                    min_value=8.0,
-                    max_value=24.0,
-                    tag="slider_name_text_size",
-                    callback=on_name_text_size_change,
-                    format="%.1f"
-                )
-                with dpg.tooltip("slider_name_text_size", tag="tooltip_name_text_size", show=show_tips):
-                    dpg.add_text("Font size for player nickname text")
-                ALL_TOOLTIP_TAGS.append("tooltip_name_text_size")
-                
-                dpg.add_slider_float(
-                    label="Weapon",
-                    default_value=Active_Config.get("weapon_text_size", 11.0),
-                    min_value=8.0,
-                    max_value=24.0,
-                    tag="slider_weapon_text_size",
-                    callback=on_weapon_text_size_change,
-                    format="%.1f"
-                )
-                with dpg.tooltip("slider_weapon_text_size", tag="tooltip_weapon_text_size", show=show_tips):
-                    dpg.add_text("Font size for weapon name text")
-                ALL_TOOLTIP_TAGS.append("tooltip_weapon_text_size")
-                
-                dpg.add_separator()
-                dpg.add_text("Crosshair Options")
-                
-                dpg.add_slider_float(
-                    label="Scale",
-                    default_value=Active_Config.get("custom_crosshair_scale", 1.0),
-                    min_value=0.5,
-                    max_value=3.0,
-                    tag="slider_custom_crosshair_scale",
-                    callback=on_custom_crosshair_scale_change,
-                    format="%.1f"
-                )
-                with dpg.tooltip("slider_custom_crosshair_scale", tag="tooltip_custom_crosshair_scale", show=show_tips):
-                    dpg.add_text("Size multiplier for custom crosshair")
-                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_scale")
-                
-                dpg.add_slider_float(
-                    label="Thickness",
-                    default_value=Active_Config.get("custom_crosshair_thickness", 2.0),
-                    min_value=1.0,
-                    max_value=5.0,
-                    tag="slider_custom_crosshair_thickness",
-                    callback=on_custom_crosshair_thickness_change,
-                    format="%.1f"
-                )
-                with dpg.tooltip("slider_custom_crosshair_thickness", tag="tooltip_custom_crosshair_thickness", show=show_tips):
-                    dpg.add_text("Line thickness for custom crosshair")
-                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_thickness")
-                
-                dpg.add_combo(
-                    items=["Sus", "Plus", "X", "Circle", "Dot"],
-                    default_value=Active_Config.get("custom_crosshair_shape", "Sus"),
-                    label="Shape",
-                    tag="combo_custom_crosshair_shape",
-                    callback=on_custom_crosshair_shape_change
-                )
-                with dpg.tooltip("combo_custom_crosshair_shape", tag="tooltip_custom_crosshair_shape", show=show_tips):
-                    dpg.add_text("Crosshair shape preset")
-                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_shape")
-                
-                dpg.add_separator()
                 dpg.add_text("ESP Distance Filter")
                 
                 # ESP Distance Filter toggle
@@ -9516,6 +11894,20 @@ def create_esp_tab():
                 with dpg.tooltip("chk_esp_distance_filter_enabled", tag="tooltip_esp_distance_filter_enabled", show=show_tips):
                     dpg.add_text("Filter ESP based on player distance")
                 ALL_TOOLTIP_TAGS.append("tooltip_esp_distance_filter_enabled")
+                
+                # Filter Mode dropdown (shown when enabled)
+                dpg.add_combo(
+                    items=["Only Show", "Hide"],
+                    default_value=Active_Config.get("esp_distance_filter_mode", "Only Show"),
+                    label="Filter Type",
+                    tag="combo_esp_distance_filter_mode",
+                    callback=on_esp_distance_filter_mode_change,
+                    show=Active_Config.get("esp_distance_filter_enabled", False)
+                )
+                with dpg.tooltip("combo_esp_distance_filter_mode", tag="tooltip_esp_distance_filter_mode", show=show_tips):
+                    dpg.add_text("Only Show: display only matching players")
+                    dpg.add_text("Hide: hide matching players")
+                ALL_TOOLTIP_TAGS.append("tooltip_esp_distance_filter_mode")
                 
                 # Distance Filter Type dropdown (shown when enabled)
                 dpg.add_combo(
@@ -9532,7 +11924,7 @@ def create_esp_tab():
                 
                 # Distance slider (shown when enabled)
                 dpg.add_slider_float(
-                    label="Distance (m)",
+                    label="Distance Value",
                     default_value=Active_Config.get("esp_distance_filter_distance", 25.0),
                     min_value=5.0,
                     max_value=50.0,
@@ -9544,20 +11936,6 @@ def create_esp_tab():
                 with dpg.tooltip("slider_esp_distance_filter_distance", tag="tooltip_esp_distance_filter_distance", show=show_tips):
                     dpg.add_text("Distance threshold in meters (5-50)")
                 ALL_TOOLTIP_TAGS.append("tooltip_esp_distance_filter_distance")
-                
-                # Filter Mode dropdown (shown when enabled)
-                dpg.add_combo(
-                    items=["Only Show", "Hide"],
-                    default_value=Active_Config.get("esp_distance_filter_mode", "Only Show"),
-                    label="Filter Type",
-                    tag="combo_esp_distance_filter_mode",
-                    callback=on_esp_distance_filter_mode_change,
-                    show=Active_Config.get("esp_distance_filter_enabled", False)
-                )
-                with dpg.tooltip("combo_esp_distance_filter_mode", tag="tooltip_esp_distance_filter_mode", show=show_tips):
-                    dpg.add_text("Only Show: display only matching players")
-                    dpg.add_text("Hide: hide matching players")
-                ALL_TOOLTIP_TAGS.append("tooltip_esp_distance_filter_mode")
             
             # =========== RADAR SUBTAB ===========
             with dpg.tab(label="Radar"):
@@ -9577,9 +11955,29 @@ def create_esp_tab():
                     tag="chk_radar_overlap_game",
                     callback=on_radar_overlap_game_toggle
                 )
-                with dpg.tooltip("chk_radar_overlap_game", tag="tooltip_radar_overlap_game", show=show_tips):
+                with dpg.tooltip("chk_radar_overlap_game", tag="tooltip_radar_overlap_game", show=True):
                     dpg.add_text("CS2 RADAR SETTINS REQUIRED:\n-CENTER PLAYER = YES\n-RADAR ROTATING = YES\n-RADAR HUD SIZE = 1.0\n-RADAR MAP ZOM = 0.7\n-FORCE SQUARE SHAPE = NO\n-RADAR ZOOMING DYNAMICALLY  = NO")
                 ALL_TOOLTIP_TAGS.append("tooltip_radar_overlap_game")
+                
+                dpg.add_checkbox(
+                    label="Spotted Only",
+                    default_value=Active_Config.get("radar_spotted_only", False),
+                    tag="chk_radar_spotted_only",
+                    callback=on_radar_spotted_only_toggle
+                )
+                with dpg.tooltip("chk_radar_spotted_only", tag="tooltip_radar_spotted_only", show=show_tips):
+                    dpg.add_text("Only show spotted enemies on radar")
+                ALL_TOOLTIP_TAGS.append("tooltip_radar_spotted_only")
+                
+                dpg.add_checkbox(
+                    label="Use ESP Distance Filter Settings",
+                    default_value=Active_Config.get("radar_use_esp_distance", False),
+                    tag="chk_radar_use_esp_distance",
+                    callback=on_radar_use_esp_distance_toggle
+                )
+                with dpg.tooltip("chk_radar_use_esp_distance", tag="tooltip_radar_use_esp_distance", show=show_tips):
+                    dpg.add_text("Filter radar blips based on ESP distance filter settings")
+                ALL_TOOLTIP_TAGS.append("tooltip_radar_use_esp_distance")
                 
                 dpg.add_separator()
                 
@@ -9790,7 +12188,7 @@ def create_aimbot_tab():
                     format="%.1f"
                 )
                 with dpg.tooltip("slider_aimbot_smoothness", tag="tooltip_aimbot_smoothness", show=show_tips):
-                    dpg.add_text("Higher = smoother aim movement")
+                    dpg.add_text("0 = instant lockon, 100 = very smooth/slow movement")
                 ALL_TOOLTIP_TAGS.append("tooltip_aimbot_smoothness")
                 
                 dpg.add_spacer(height=UI_SPACING_SMALL)
@@ -9861,10 +12259,49 @@ def create_aimbot_tab():
                 dpg.add_text("Triggerbot Settings")
                 dpg.add_separator()
                 
+                # Weapon preset dropdown
+                dpg.add_combo(
+                    label="Weapon Preset",
+                    items=get_triggerbot_dropdown_items(),
+                    default_value=Active_Config.get("current_triggerbot_preset", "All weapons"),
+                    callback=on_triggerbot_preset_change,
+                    tag="combo_triggerbot_preset"
+                )
+                with dpg.tooltip("combo_triggerbot_preset", tag="tooltip_triggerbot_preset", show=show_tips):
+                    dpg.add_text("Select weapon preset to configure. Settings are saved per preset.")
+                ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_preset")
+                
+                # Favorite checkbox
+                current_preset = Active_Config.get("current_triggerbot_preset", "All weapons")
+                favorites = Active_Config.get("favorite_triggerbot_presets", [])
+                dpg.add_checkbox(
+                    label="Favorite Preset",
+                    default_value=current_preset in favorites,
+                    callback=on_triggerbot_favorite_toggle,
+                    tag="chk_triggerbot_favorite"
+                )
+                with dpg.tooltip("chk_triggerbot_favorite", tag="tooltip_triggerbot_favorite", show=show_tips):
+                    dpg.add_text("Add this preset to favorites (shows at top of dropdown)")
+                ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_favorite")
+                
+                # Show preset list toggle
+                dpg.add_checkbox(
+                    label="List Presets To Cycle In Status Labels Overlay",
+                    default_value=Active_Config.get("show_triggerbot_preset_list", False),
+                    callback=on_show_triggerbot_preset_list_toggle,
+                    tag="chk_show_triggerbot_preset_list"
+                )
+                with dpg.tooltip("chk_show_triggerbot_preset_list", tag="tooltip_show_triggerbot_preset_list", show=show_tips):
+                    dpg.add_text("Show list of cycling presets under triggerbot status in overlay")
+                ALL_TOOLTIP_TAGS.append("tooltip_show_triggerbot_preset_list")
+                
+                dpg.add_separator()
+                
                 # Enable triggerbot
+                current_settings = get_current_triggerbot_settings()
                 dpg.add_checkbox(
                     label="Enable Triggerbot",
-                    default_value=Active_Config.get("triggerbot_enabled", False),
+                    default_value=current_settings.get("triggerbot_enabled", False),
                     callback=on_triggerbot_toggle,
                     tag="chk_triggerbot_enabled"
                 )
@@ -9879,7 +12316,7 @@ def create_aimbot_tab():
                 # First shot delay
                 dpg.add_slider_int(
                     label="First Shot Delay (ms)",
-                    default_value=Active_Config.get("triggerbot_first_shot_delay", 0),
+                    default_value=current_settings.get("triggerbot_first_shot_delay", 0),
                     min_value=0,
                     max_value=1000,
                     tag="slider_triggerbot_first_shot_delay",
@@ -9892,7 +12329,7 @@ def create_aimbot_tab():
                 # Between shots delay
                 dpg.add_slider_int(
                     label="Between Shots Delay (ms)",
-                    default_value=Active_Config.get("triggerbot_between_shots_delay", 30),
+                    default_value=current_settings.get("triggerbot_between_shots_delay", 30),
                     min_value=0,
                     max_value=1000,
                     tag="slider_triggerbot_between_shots_delay",
@@ -9909,7 +12346,7 @@ def create_aimbot_tab():
                 # Burst mode toggle
                 dpg.add_checkbox(
                     label="Enable Burst Mode",
-                    default_value=Active_Config.get("triggerbot_burst_mode", False),
+                    default_value=current_settings.get("triggerbot_burst_mode", False),
                     callback=on_triggerbot_burst_mode_toggle,
                     tag="chk_triggerbot_burst_mode"
                 )
@@ -9918,11 +12355,11 @@ def create_aimbot_tab():
                 ALL_TOOLTIP_TAGS.append("tooltip_triggerbot_burst_mode")
                 
                 # Burst shots amount
-                burst_mode_enabled = Active_Config.get("triggerbot_burst_mode", False)
+                burst_mode_enabled = current_settings.get("triggerbot_burst_mode", False)
                 burst_shots_show = show_tips and burst_mode_enabled
                 dpg.add_slider_int(
                     label="Burst Shots",
-                    default_value=Active_Config.get("triggerbot_burst_shots", 3),
+                    default_value=current_settings.get("triggerbot_burst_shots", 3),
                     min_value=1,
                     max_value=10,
                     tag="slider_triggerbot_burst_shots",
@@ -9940,7 +12377,7 @@ def create_aimbot_tab():
                 # Head-only mode toggle
                 dpg.add_checkbox(
                     label="Head-Only Mode",
-                    default_value=Active_Config.get("triggerbot_head_only", False),
+                    default_value=current_settings.get("triggerbot_head_only", False),
                     callback=on_triggerbot_head_only_toggle,
                     tag="chk_triggerbot_head_only"
                 )
@@ -10213,143 +12650,317 @@ def create_colors_tab():
                 with dpg.tooltip("slider_menu_transparency", tag="tooltip_menu_transparency", show=show_tips):
                     dpg.add_text("Menu window transparency (50 = very transparent, 255 = opaque)")
                 ALL_TOOLTIP_TAGS.append("tooltip_menu_transparency")
+                
+                dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                dpg.add_text("Window Style")
+                dpg.add_separator()
+                
+                # Rounded corners option (Windows 11 only)
+                dpg.add_checkbox(label="Rounded Window Corners", tag="chk_rounded_corners_cheat", default_value=True, callback=on_rounded_corners_changed)
+                with dpg.tooltip("chk_rounded_corners_cheat", tag="tooltip_rounded_corners", show=show_tips):
+                    dpg.add_text("Enable rounded corners on Windows 11")
+                    dpg.add_text("(Has no effect on Windows 10)")
+                ALL_TOOLTIP_TAGS.append("tooltip_rounded_corners")
             
-            # ESP Colors sub-tab
-            with dpg.tab(label="ESP"):
-                dpg.add_text("Box Colors")
-                dpg.add_separator()
-                
-                # Enemy Box Color
-                dpg.add_color_edit(
-                    label="Enemy Boxes",
-                    default_value=get_color_for_picker("enemy_box_color", (196, 30, 58)),
-                    no_alpha=True,
-                    callback=on_enemy_box_color_change,
-                    tag="color_enemy_box"
-                )
-                
-                # Team Box Color
-                dpg.add_color_edit(
-                    label="Team Boxes",
-                    default_value=get_color_for_picker("team_box_color", (71, 167, 106)),
-                    no_alpha=True,
-                    callback=on_team_box_color_change,
-                    tag="color_team_box"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Snapline Colors")
-                dpg.add_separator()
-                
-                # Enemy Snapline Color
-                dpg.add_color_edit(
-                    label="Enemy Snaplines",
-                    default_value=get_color_for_picker("enemy_snapline_color", (196, 30, 58)),
-                    no_alpha=True,
-                    callback=on_enemy_snapline_color_change,
-                    tag="color_enemy_snapline"
-                )
-                
-                # Team Snapline Color
-                dpg.add_color_edit(
-                    label="Team Snaplines",
-                    default_value=get_color_for_picker("team_snapline_color", (71, 167, 106)),
-                    no_alpha=True,
-                    callback=on_team_snapline_color_change,
-                    tag="color_team_snapline"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Skeleton Colors")
-                dpg.add_separator()
-                
-                # Enemy Skeleton Color
-                dpg.add_color_edit(
-                    label="Enemy Skeleton",
-                    default_value=get_color_for_picker("enemy_skeleton_color", (255, 255, 255)),
-                    no_alpha=True,
-                    callback=on_enemy_skeleton_color_change,
-                    tag="color_enemy_skeleton"
-                )
-                
-                # Team Skeleton Color
-                dpg.add_color_edit(
-                    label="Team Skeleton",
-                    default_value=get_color_for_picker("team_skeleton_color", (255, 255, 255)),
-                    no_alpha=True,
-                    callback=on_team_skeleton_color_change,
-                    tag="color_team_skeleton"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Head Dot Colors")
-                dpg.add_separator()
-                
-                # Enemy Head Dot Color
-                dpg.add_color_edit(
-                    label="Enemy Head Dot",
-                    default_value=get_color_for_picker("enemy_head_dot_color", (255, 255, 0)),
-                    no_alpha=True,
-                    callback=on_enemy_head_dot_color_change,
-                    tag="color_enemy_head_dot"
-                )
-                
-                # Team Head Dot Color
-                dpg.add_color_edit(
-                    label="Team Head Dot",
-                    default_value=get_color_for_picker("team_head_dot_color", (255, 255, 0)),
-                    no_alpha=True,
-                    callback=on_team_head_dot_color_change,
-                    tag="color_team_head_dot"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Spotted Status Colors")
-                dpg.add_separator()
-                
-                # Spotted Color (when visible)
-                dpg.add_color_edit(
-                    label="Spotted",
-                    default_value=get_color_for_picker("spotted_color", (0, 255, 0)),
-                    no_alpha=True,
-                    callback=on_spotted_color_change,
-                    tag="color_spotted"
-                )
-                
-                # Not Spotted Color
-                dpg.add_color_edit(
-                    label="Not Spotted",
-                    default_value=get_color_for_picker("not_spotted_color", (255, 0, 0)),
-                    no_alpha=True,
-                    callback=on_not_spotted_color_change,
-                    tag="color_not_spotted"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Footstep ESP Colors")
-                dpg.add_separator()
-                
-                # Footstep ESP Color
-                dpg.add_color_edit(
-                    label="Footstep ESP",
-                    default_value=get_color_for_picker("footstep_esp_color", (255, 165, 0)),
-                    no_alpha=True,
-                    callback=on_footstep_esp_color_change,
-                    tag="color_footstep_esp"
-                )
-                
-                dpg.add_spacer(height=UI_SPACING_MEDIUM)
-                dpg.add_text("Crosshair Colors")
-                dpg.add_separator()
-                
-                # Custom Crosshair Color
-                dpg.add_color_edit(
-                    label="Custom Crosshair",
-                    default_value=get_color_for_picker("custom_crosshair_color", (255, 255, 255)),
-                    no_alpha=True,
-                    callback=on_custom_crosshair_color_change,
-                    tag="color_custom_crosshair_color"
-                )
+            # Overlay Colors sub-tab
+            with dpg.tab(label="Overlay"):
+                # Create sub-tabs for organization
+                with dpg.tab_bar():
+                    # Colors sub-tab
+                    with dpg.tab(label="Colors"):
+                        dpg.add_text("Box Colors")
+                        dpg.add_separator()
+                        
+                        # Enemy Box Color
+                        dpg.add_color_edit(
+                            label="Enemy Boxes",
+                            default_value=get_color_for_picker("enemy_box_color", (196, 30, 58)),
+                            no_alpha=True,
+                            callback=on_enemy_box_color_change,
+                            tag="color_enemy_box"
+                        )
+                        
+                        # Team Box Color
+                        dpg.add_color_edit(
+                            label="Team Boxes",
+                            default_value=get_color_for_picker("team_box_color", (71, 167, 106)),
+                            no_alpha=True,
+                            callback=on_team_box_color_change,
+                            tag="color_team_box"
+                        )
+                        
+                        dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                        dpg.add_text("Snapline Colors")
+                        dpg.add_separator()
+                        
+                        # Enemy Snapline Color
+                        dpg.add_color_edit(
+                            label="Enemy Snaplines",
+                            default_value=get_color_for_picker("enemy_snapline_color", (196, 30, 58)),
+                            no_alpha=True,
+                            callback=on_enemy_snapline_color_change,
+                            tag="color_enemy_snapline"
+                        )
+                        
+                        # Team Snapline Color
+                        dpg.add_color_edit(
+                            label="Team Snaplines",
+                            default_value=get_color_for_picker("team_snapline_color", (71, 167, 106)),
+                            no_alpha=True,
+                            callback=on_team_snapline_color_change,
+                            tag="color_team_snapline"
+                        )
+                        
+                        dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                        dpg.add_text("Skeleton Colors")
+                        dpg.add_separator()
+                        
+                        # Enemy Skeleton Color
+                        dpg.add_color_edit(
+                            label="Enemy Skeleton",
+                            default_value=get_color_for_picker("enemy_skeleton_color", (255, 255, 255)),
+                            no_alpha=True,
+                            callback=on_enemy_skeleton_color_change,
+                            tag="color_enemy_skeleton"
+                        )
+                        
+                        # Team Skeleton Color
+                        dpg.add_color_edit(
+                            label="Team Skeleton",
+                            default_value=get_color_for_picker("team_skeleton_color", (255, 255, 255)),
+                            no_alpha=True,
+                            callback=on_team_skeleton_color_change,
+                            tag="color_team_skeleton"
+                        )
+                        
+                        dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                        dpg.add_text("Head Dot Colors")
+                        dpg.add_separator()
+                        
+                        # Head Hitbox Color
+                        dpg.add_color_edit(
+                            label="Head Hitbox",
+                            default_value=get_color_for_picker("head_hitbox_color", (255, 0, 0)),
+                            no_alpha=True,
+                            callback=on_head_hitbox_color_change,
+                            tag="color_head_hitbox"
+                        )
+                        
+                        dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                        dpg.add_text("Spotted Status Colors")
+                        dpg.add_separator()
+                        
+                        # Spotted Color (when visible)
+                        dpg.add_color_edit(
+                            label="Spotted",
+                            default_value=get_color_for_picker("spotted_color", (0, 255, 0)),
+                            no_alpha=True,
+                            callback=on_spotted_color_change,
+                            tag="color_spotted"
+                        )
+                        
+                        # Not Spotted Color
+                        dpg.add_color_edit(
+                            label="Not Spotted",
+                            default_value=get_color_for_picker("not_spotted_color", (255, 0, 0)),
+                            no_alpha=True,
+                            callback=on_not_spotted_color_change,
+                            tag="color_not_spotted"
+                        )
+                        
+                        dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                        dpg.add_text("Footsteps Colors")
+                        dpg.add_separator()
+                        
+                        # Footstep ESP Color
+                        dpg.add_color_edit(
+                            label="Footsteps",
+                            default_value=get_color_for_picker("footstep_esp_color", (255, 255, 255)),
+                            no_alpha=True,
+                            callback=on_footstep_esp_color_change,
+                            tag="color_footstep_esp"
+                        )
+                        
+                        dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                        dpg.add_text("Bullet Tracer Color")
+                        dpg.add_separator()
+                        
+                        # Bullet Tracer Color
+                        dpg.add_color_edit(
+                            label="Tracer Color",
+                            default_value=get_color_for_picker("bullet_tracer_color", (192, 203, 229)),
+                            no_alpha=True,
+                            callback=on_bullet_tracer_color_change,
+                            tag="color_bullet_tracer"
+                        )
+                        
+                        # Bullet Tracer Fade Color
+                        dpg.add_color_edit(
+                            label="Fade To Color",
+                            default_value=get_color_for_picker("bullet_tracer_fade_color", (0, 0, 0)),
+                            no_alpha=True,
+                            callback=on_bullet_tracer_fade_color_change,
+                            tag="color_bullet_tracer_fade"
+                        )
+                        
+                        dpg.add_spacer(height=UI_SPACING_MEDIUM)
+                        dpg.add_text("Crosshair Colors")
+                        dpg.add_separator()
+                        
+                        # Custom Crosshair Color
+                        dpg.add_color_edit(
+                            label="Custom Crosshair",
+                            default_value=get_color_for_picker("custom_crosshair_color", (255, 255, 255)),
+                            no_alpha=True,
+                            callback=on_custom_crosshair_color_change,
+                            tag="color_custom_crosshair_color"
+                        )
+                    
+                    # Scaling sub-tab
+                    with dpg.tab(label="Scaling"):
+                        dpg.add_text("Scaling Options")
+                        dpg.add_separator()
+                        
+                        dpg.add_text("Line Thickness")
+                        
+                        dpg.add_slider_float(
+                            label="Box",
+                            default_value=Active_Config.get("box_thickness", 1.5),
+                            min_value=1.0,
+                            max_value=5.0,
+                            tag="slider_box_thickness",
+                            callback=on_box_thickness_change,
+                            format="%.1f"
+                        )
+                        with dpg.tooltip("slider_box_thickness", tag="tooltip_box_thickness", show=show_tips):
+                            dpg.add_text("Thickness of ESP box outlines")
+                        ALL_TOOLTIP_TAGS.append("tooltip_box_thickness")
+                        
+                        dpg.add_slider_float(
+                            label="Snaplines",
+                            default_value=Active_Config.get("snapline_thickness", 1.5),
+                            min_value=1.0,
+                            max_value=5.0,
+                            tag="slider_snapline_thickness",
+                            callback=on_snapline_thickness_change,
+                            format="%.1f"
+                        )
+                        with dpg.tooltip("slider_snapline_thickness", tag="tooltip_snapline_thickness", show=show_tips):
+                            dpg.add_text("Thickness of snap lines to players")
+                        ALL_TOOLTIP_TAGS.append("tooltip_snapline_thickness")
+                        
+                        dpg.add_slider_float(
+                            label="Skeleton",
+                            default_value=Active_Config.get("skeleton_thickness", 1.5),
+                            min_value=1.0,
+                            max_value=5.0,
+                            tag="slider_skeleton_thickness",
+                            callback=on_skeleton_thickness_change,
+                            format="%.1f"
+                        )
+                        with dpg.tooltip("slider_skeleton_thickness", tag="tooltip_skeleton_thickness", show=show_tips):
+                            dpg.add_text("Thickness of skeleton bone lines")
+                        ALL_TOOLTIP_TAGS.append("tooltip_skeleton_thickness")
+                        
+                        dpg.add_separator()
+                        dpg.add_text("Text Size")
+                        
+                        dpg.add_slider_float(
+                            label="Spotted Status",
+                            default_value=Active_Config.get("spotted_text_size", 12.0),
+                            min_value=8.0,
+                            max_value=24.0,
+                            tag="slider_spotted_text_size",
+                            callback=on_spotted_text_size_change,
+                            format="%.1f"
+                        )
+                        with dpg.tooltip("slider_spotted_text_size", tag="tooltip_spotted_text_size", show=show_tips):
+                            dpg.add_text("Font size for spotted status text")
+                        ALL_TOOLTIP_TAGS.append("tooltip_spotted_text_size")
+                        
+                        dpg.add_slider_float(
+                            label="Nickname",
+                            default_value=Active_Config.get("name_text_size", 14.0),
+                            min_value=8.0,
+                            max_value=24.0,
+                            tag="slider_name_text_size",
+                            callback=on_name_text_size_change,
+                            format="%.1f"
+                        )
+                        with dpg.tooltip("slider_name_text_size", tag="tooltip_name_text_size", show=show_tips):
+                            dpg.add_text("Font size for player nickname text")
+                        ALL_TOOLTIP_TAGS.append("tooltip_name_text_size")
+                        
+                        dpg.add_slider_float(
+                            label="Health",
+                            default_value=Active_Config.get("health_text_size", 12.0),
+                            min_value=8.0,
+                            max_value=24.0,
+                            tag="slider_health_text_size",
+                            callback=on_health_text_size_change,
+                            format="%.1f"
+                        )
+                        with dpg.tooltip("slider_health_text_size", tag="tooltip_health_text_size", show=show_tips):
+                            dpg.add_text("Font size for health and shield percentage text")
+                        ALL_TOOLTIP_TAGS.append("tooltip_health_text_size")
+                        
+                        dpg.add_separator()
+                        dpg.add_text("Bullet Tracers")
+                        
+                        # Bullet Tracer Fade Duration
+                        dpg.add_slider_float(
+                            label="Fade Duration (s)",
+                            default_value=Active_Config.get("bullet_tracer_fade_duration", 2.0),
+                            min_value=0.5,
+                            max_value=5.0,
+                            callback=on_bullet_tracer_fade_duration_change,
+                            tag="slider_bullet_tracer_fade",
+                            format="%.1f"
+                        )
+                        with dpg.tooltip("slider_bullet_tracer_fade", tag="tooltip_bullet_tracer_fade", show=show_tips):
+                            dpg.add_text("How long bullet tracers stay visible")
+                        ALL_TOOLTIP_TAGS.append("tooltip_bullet_tracer_fade")
+                        
+                        # Bullet Tracer Thickness
+                        dpg.add_slider_float(
+                            label="Thickness",
+                            default_value=Active_Config.get("bullet_tracer_thickness", 1.5),
+                            min_value=0.5,
+                            max_value=5.0,
+                            callback=on_bullet_tracer_thickness_change,
+                            tag="slider_bullet_tracer_thickness",
+                            format="%.1f"
+                        )
+                        with dpg.tooltip("slider_bullet_tracer_thickness", tag="tooltip_bullet_tracer_thickness", show=show_tips):
+                            dpg.add_text("Line thickness of bullet tracers")
+                        ALL_TOOLTIP_TAGS.append("tooltip_bullet_tracer_thickness")
+                        
+                        # Bullet Tracer Max Count
+                        dpg.add_slider_int(
+                            label="Max Tracers",
+                            default_value=Active_Config.get("bullet_tracer_max_count", 40),
+                            min_value=10,
+                            max_value=100,
+                            callback=on_bullet_tracer_max_count_change,
+                            tag="slider_bullet_tracer_max"
+                        )
+                        with dpg.tooltip("slider_bullet_tracer_max", tag="tooltip_bullet_tracer_max", show=show_tips):
+                            dpg.add_text("Maximum number of tracers displayed at once")
+                        ALL_TOOLTIP_TAGS.append("tooltip_bullet_tracer_max")
+                        
+                        # Bullet Tracer Length
+                        dpg.add_slider_float(
+                            label="Tracer Length (m)",
+                            default_value=Active_Config.get("bullet_tracer_length", 100.0),
+                            min_value=5.0,
+                            max_value=500.0,
+                            callback=on_bullet_tracer_length_change,
+                            tag="slider_bullet_tracer_length",
+                            format="%.0f"
+                        )
+                        with dpg.tooltip("slider_bullet_tracer_length", tag="tooltip_bullet_tracer_length", show=show_tips):
+                            dpg.add_text("Length of bullet tracers in meters")
+                        ALL_TOOLTIP_TAGS.append("tooltip_bullet_tracer_length")
             
             # Radar Colors sub-tab
             with dpg.tab(label="Radar"):
@@ -10596,13 +13207,14 @@ def initialize_color_pickers():
         ("color_team_snapline", "team_snapline_color", (71, 167, 106)),
         ("color_enemy_skeleton", "enemy_skeleton_color", (255, 255, 255)),
         ("color_team_skeleton", "team_skeleton_color", (255, 255, 255)),
-        ("color_enemy_head_dot", "enemy_head_dot_color", (255, 255, 0)),
-        ("color_team_head_dot", "team_head_dot_color", (255, 255, 0)),
+        ("color_head_hitbox", "head_hitbox_color", (255, 0, 0)),
         # Spotted colors
         ("color_spotted", "spotted_color", (0, 255, 0)),
         ("color_not_spotted", "not_spotted_color", (255, 0, 0)),
         # Footstep ESP color
-        ("color_footstep_esp", "footstep_esp_color", (255, 165, 0)),
+        ("color_footstep_esp", "footstep_esp_color", (255, 255, 255)),
+        # Bullet Tracer color
+        ("color_bullet_tracer", "bullet_tracer_color", (192, 203, 229)),
         # Radar colors
         ("color_radar_bg", "radar_bg_color", (0, 0, 0)),
         ("color_radar_border", "radar_border_color", (128, 128, 128)),
@@ -10805,6 +13417,10 @@ def print_active_config():
 def update_debug_terminal():
     """Update the debug terminal display with latest messages."""
     global debug_output
+    
+    # Update rainbow colors if rainbow theme is active
+    if rainbow_active:
+        update_rainbow_colors()
     
     try:
         if not dpg.does_item_exist("debug_terminal_text"):
@@ -11244,6 +13860,21 @@ def create_keybinds_tab():
         
         dpg.add_spacer(height=2)
         
+        # Bhop key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Bhop Key:")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('bhop_key', 'space').upper()}",
+                tag="btn_bind_bhop_cheat",
+                callback=on_bhop_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_bhop_cheat", tag="tooltip_bhop_key", show=show_tips):
+            dpg.add_text("Hold this key or mouse button to activate bunny hop")
+        ALL_TOOLTIP_TAGS.append("tooltip_bhop_key")
+        
+        dpg.add_spacer(height=2)
+        
         # Aimbot toggle key button
         with dpg.group(horizontal=True):
             dpg.add_text("Aimbot Toggle Key:")
@@ -11256,21 +13887,6 @@ def create_keybinds_tab():
         with dpg.tooltip("btn_bind_aimbot_toggle_cheat", tag="tooltip_aimbot_toggle_key", show=show_tips):
             dpg.add_text("Key or mouse button to toggle aimbot on/off")
         ALL_TOOLTIP_TAGS.append("tooltip_aimbot_toggle_key")
-        
-        dpg.add_spacer(height=2)
-        
-        # Head-only mode toggle key button
-        with dpg.group(horizontal=True):
-            dpg.add_text("Head-Only Toggle Key:")
-            dpg.add_button(
-                label=f"{Keybinds_Config.get('head_only_toggle_key', '').upper() or 'NONE'}",
-                tag="btn_bind_head_only_toggle_cheat",
-                callback=on_head_only_toggle_key_button,
-                width=150
-            )
-        with dpg.tooltip("btn_bind_head_only_toggle_cheat", tag="tooltip_head_only_toggle_key", show=show_tips):
-            dpg.add_text("Key or mouse button to toggle head-only mode for triggerbot")
-        ALL_TOOLTIP_TAGS.append("tooltip_head_only_toggle_key")
         
         dpg.add_spacer(height=2)
         
@@ -11301,6 +13917,34 @@ def create_keybinds_tab():
         with dpg.tooltip("btn_bind_anti_afk_toggle_cheat", tag="tooltip_anti_afk_toggle_key", show=show_tips):
             dpg.add_text("Key or mouse button to toggle anti-AFK on/off")
         ALL_TOOLTIP_TAGS.append("tooltip_anti_afk_toggle_key")
+        
+        dpg.add_spacer(height=2)
+        
+        # Cycle triggerbot presets forwards key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Cycle Triggerbot Presets: Forwards")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('cycle_triggerbot_presets_forwards_key', '').upper() or 'NONE'}",
+                tag="btn_bind_cycle_triggerbot_presets_forwards_cheat",
+                callback=on_cycle_triggerbot_presets_forwards_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_cycle_triggerbot_presets_forwards_cheat", tag="tooltip_cycle_triggerbot_presets_forwards_key", show=show_tips):
+            dpg.add_text("Key to cycle through triggerbot presets forwards")
+        ALL_TOOLTIP_TAGS.append("tooltip_cycle_triggerbot_presets_forwards_key")
+        
+        # Cycle triggerbot presets backwards key button
+        with dpg.group(horizontal=True):
+            dpg.add_text("Cycle Triggerbot Presets: Backwards")
+            dpg.add_button(
+                label=f"{Keybinds_Config.get('cycle_triggerbot_presets_backwards_key', '').upper() or 'NONE'}",
+                tag="btn_bind_cycle_triggerbot_presets_backwards_cheat",
+                callback=on_cycle_triggerbot_presets_backwards_key_button,
+                width=150
+            )
+        with dpg.tooltip("btn_bind_cycle_triggerbot_presets_backwards_cheat", tag="tooltip_cycle_triggerbot_presets_backwards_key", show=show_tips):
+            dpg.add_text("Key to cycle through triggerbot presets backwards")
+        ALL_TOOLTIP_TAGS.append("tooltip_cycle_triggerbot_presets_backwards_key")
 
 
 def create_settings_tab_cheat():
@@ -11377,36 +14021,6 @@ def create_settings_tab_cheat():
                 
                 dpg.add_separator()
                 
-                # Hitsound toggle
-                hitsound_enabled = Active_Config.get("hitsound_enabled", False)
-                dpg.add_checkbox(
-                    label="Hitsound",
-                    default_value=hitsound_enabled,
-                    tag="chk_hitsound_enabled",
-                    callback=on_hitsound_toggle
-                )
-                with dpg.tooltip("chk_hitsound_enabled", tag="tooltip_hitsound", show=show_tips):
-                    dpg.add_text("Play sound when hitting enemies")
-                    dpg.add_text("Select sound type from dropdown below")
-                ALL_TOOLTIP_TAGS.append("tooltip_hitsound")
-                
-                # Hitsound selection dropdown (visibility controlled by toggle)
-                dpg.add_combo(
-                    items=["hitmarker", "criticalhit", "metalhit"],
-                    default_value=Active_Config.get("hitsound_type", "hitmarker"),
-                    label="Hitsound Type",
-                    tag="combo_hitsound_type",
-                    callback=on_hitsound_type_change,
-                    show=hitsound_enabled
-                )
-                hitsound_combo_show = show_tips and hitsound_enabled
-                with dpg.tooltip("combo_hitsound_type", tag="tooltip_hitsound_type", show=hitsound_combo_show):
-                    dpg.add_text("Select which hitsound to play")
-                    dpg.add_text("Files are downloaded automatically")
-                ALL_TOOLTIP_TAGS.append("tooltip_hitsound_type")
-                
-                dpg.add_separator()
-                
                 # Anti-AFK toggle
                 dpg.add_checkbox(
                     label="Anti-AFK",
@@ -11417,6 +14031,19 @@ def create_settings_tab_cheat():
                 with dpg.tooltip("chk_anti_afk_enabled", tag="tooltip_anti_afk", show=show_tips):
                     dpg.add_text("Automatically press W,A,S,D keys to prevent AFK kick")
                 ALL_TOOLTIP_TAGS.append("tooltip_anti_afk")
+                
+                # Bunny Hop toggle
+                dpg.add_checkbox(
+                    label="Bunny Hop",
+                    default_value=Active_Config.get("bhop_enabled", False),
+                    tag="chk_bhop_enabled",
+                    callback=on_bhop_toggle
+                )
+                with dpg.tooltip("chk_bhop_enabled", tag="tooltip_bhop", show=show_tips):
+                    dpg.add_text("Hold the configured bhop key to jump automatically")
+                    dpg.add_text("Configure the key in the Keybinds tab")
+                    dpg.add_text("Only works when CS2 is the active window")
+                ALL_TOOLTIP_TAGS.append("tooltip_bhop")
             
             # General settings sub-tab
             with dpg.tab(label="General"):
@@ -11426,14 +14053,18 @@ def create_settings_tab_cheat():
                 dpg.add_text("General Settings")
                 dpg.add_separator()
                 
-                # Rounded corners option (Windows 11 only)
-                dpg.add_checkbox(label="Rounded Window Corners", tag="chk_rounded_corners_cheat", default_value=True, callback=on_rounded_corners_changed)
-                with dpg.tooltip("chk_rounded_corners_cheat", tag="tooltip_rounded_corners", show=show_tips):
-                    dpg.add_text("Enable rounded corners on Windows 11")
-                    dpg.add_text("(Has no effect on Windows 10)")
-                ALL_TOOLTIP_TAGS.append("tooltip_rounded_corners")
-                
                 dpg.add_separator()
+                
+                # Show Overlay FPS toggle
+                dpg.add_checkbox(
+                    label="Show Overlay FPS",
+                    default_value=Active_Config.get("show_overlay_fps", True),
+                    tag="chk_show_overlay_fps",
+                    callback=on_show_overlay_fps_toggle
+                )
+                with dpg.tooltip("chk_show_overlay_fps", tag="tooltip_show_overlay_fps", show=show_tips):
+                    dpg.add_text("Show FPS counter in the overlay")
+                ALL_TOOLTIP_TAGS.append("tooltip_show_overlay_fps")
                 
                 # FPS Cap toggle
                 fps_cap_enabled = Active_Config.get("fps_cap_enabled", False)
@@ -11487,6 +14118,145 @@ def create_settings_tab_cheat():
                 with dpg.tooltip("chk_show_status_labels", tag="tooltip_show_status_labels", show=show_tips):
                     dpg.add_text("Show feature status labels in the overlay")
                 ALL_TOOLTIP_TAGS.append("tooltip_show_status_labels")
+                
+                dpg.add_separator()
+                
+                # Bullet Tracers toggle
+                dpg.add_checkbox(
+                    label="Bullet Tracers (Experimental)", 
+                    default_value=Active_Config.get("bullet_tracers_enabled", False),
+                    tag="chk_bullet_tracers",
+                    callback=on_bullet_tracers_toggle
+                )
+                with dpg.tooltip("chk_bullet_tracers", tag="tooltip_bullet_tracers", show=show_tips):
+                    dpg.add_text("Show lines from your bullets' trajectory when firing")
+                ALL_TOOLTIP_TAGS.append("tooltip_bullet_tracers")
+                
+                # Bullet Tracer Origin Bone dropdown (only visible when tracers enabled)
+                bullet_tracers_enabled = Active_Config.get("bullet_tracers_enabled", False)
+                dpg.add_combo(
+                    label="Origin Bone",
+                    items=["Head", "Chest", "Neck", "Pelvis"],
+                    default_value=Active_Config.get("bullet_tracer_origin_bone", "Head"),
+                    tag="combo_bullet_tracer_origin_bone",
+                    callback=on_bullet_tracer_origin_bone_change,
+                    show=bullet_tracers_enabled
+                )
+                with dpg.tooltip("combo_bullet_tracer_origin_bone", tag="tooltip_bullet_tracer_origin_bone", show=show_tips and bullet_tracers_enabled):
+                    dpg.add_text("Select which bone the tracer originates from")
+                ALL_TOOLTIP_TAGS.append("tooltip_bullet_tracer_origin_bone")
+                
+                # Custom Crosshair toggle
+                custom_crosshair_enabled = Active_Config.get("custom_crosshair", False)
+                dpg.add_checkbox(
+                    label="Custom Crosshair", 
+                    default_value=custom_crosshair_enabled,
+                    tag="chk_custom_crosshair",
+                    callback=on_custom_crosshair_toggle
+                )
+                with dpg.tooltip("chk_custom_crosshair", tag="tooltip_custom_crosshair", show=show_tips):
+                    dpg.add_text("Show custom crosshair at screen center")
+                    dpg.add_text("Configure options below when enabled")
+                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair")
+                
+                # Custom crosshair options (visibility controlled by toggle)
+                dpg.add_slider_float(
+                    label="Scale",
+                    default_value=Active_Config.get("custom_crosshair_scale", 1.0),
+                    min_value=0.5,
+                    max_value=3.0,
+                    tag="slider_custom_crosshair_scale",
+                    callback=on_custom_crosshair_scale_change,
+                    format="%.1f",
+                    show=custom_crosshair_enabled
+                )
+                crosshair_scale_show = show_tips and custom_crosshair_enabled
+                with dpg.tooltip("slider_custom_crosshair_scale", tag="tooltip_custom_crosshair_scale", show=crosshair_scale_show):
+                    dpg.add_text("Size multiplier for custom crosshair")
+                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_scale")
+                
+                dpg.add_slider_float(
+                    label="Thickness",
+                    default_value=Active_Config.get("custom_crosshair_thickness", 2.0),
+                    min_value=1.0,
+                    max_value=5.0,
+                    tag="slider_custom_crosshair_thickness",
+                    callback=on_custom_crosshair_thickness_change,
+                    format="%.1f",
+                    show=custom_crosshair_enabled
+                )
+                crosshair_thickness_show = show_tips and custom_crosshair_enabled
+                with dpg.tooltip("slider_custom_crosshair_thickness", tag="tooltip_custom_crosshair_thickness", show=crosshair_thickness_show):
+                    dpg.add_text("Line thickness for custom crosshair")
+                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_thickness")
+                
+                dpg.add_combo(
+                    items=["Swastika", "Plus", "X", "Circle", "Dot"],
+                    default_value=Active_Config.get("custom_crosshair_shape", "Swastika"),
+                    label="Shape",
+                    tag="combo_custom_crosshair_shape",
+                    callback=on_custom_crosshair_shape_change,
+                    show=custom_crosshair_enabled
+                )
+                crosshair_shape_show = show_tips and custom_crosshair_enabled
+                with dpg.tooltip("combo_custom_crosshair_shape", tag="tooltip_custom_crosshair_shape", show=crosshair_shape_show):
+                    dpg.add_text("Crosshair shape preset")
+                ALL_TOOLTIP_TAGS.append("tooltip_custom_crosshair_shape")
+                
+                # Hitsound toggle
+                hitsound_enabled = Active_Config.get("hitsound_enabled", False)
+                dpg.add_checkbox(
+                    label="Hitsound",
+                    default_value=hitsound_enabled,
+                    tag="chk_hitsound_enabled",
+                    callback=on_hitsound_toggle
+                )
+                with dpg.tooltip("chk_hitsound_enabled", tag="tooltip_hitsound", show=show_tips):
+                    dpg.add_text("Play sound when hitting enemies")
+                    dpg.add_text("Select sound type from dropdown below")
+                ALL_TOOLTIP_TAGS.append("tooltip_hitsound")
+                
+                # Hitsound selection dropdown (visibility controlled by toggle)
+                # Build items list with custom sounds
+                combo_items = ["hitmarker", "criticalhit", "metalhit"]
+                custom_sounds = get_custom_sounds()
+                combo_items.extend([f"custom:{sound}" for sound in custom_sounds])
+                
+                dpg.add_combo(
+                    items=combo_items,
+                    default_value=Active_Config.get("hitsound_type", "hitmarker"),
+                    label="Hitsound Type",
+                    tag="combo_hitsound_type",
+                    callback=on_hitsound_type_change,
+                    show=hitsound_enabled
+                )
+                hitsound_combo_show = show_tips and hitsound_enabled
+                with dpg.tooltip("combo_hitsound_type", tag="tooltip_hitsound_type", show=hitsound_combo_show):
+                    dpg.add_text("Select which hitsound to play")
+                    dpg.add_text("Built-in sounds are downloaded automatically")
+                    dpg.add_text("Custom sounds support WAV, MP3, OGG, FLAC")
+                ALL_TOOLTIP_TAGS.append("tooltip_hitsound_type")
+                
+                # Custom sound upload section
+                with dpg.group(horizontal=True, show=hitsound_enabled):
+                    dpg.add_button(
+                        label="Upload Custom Sound",
+                        tag="btn_upload_sound",
+                        callback=lambda: upload_custom_sound(),
+                        width=150
+                    )
+                    dpg.add_checkbox(
+                        label="Overwrite existing",
+                        tag="chk_overwrite_existing",
+                        default_value=False
+                    )
+                
+                with dpg.tooltip("chk_overwrite_existing", tag="tooltip_overwrite_existing", show=show_tips):
+                    dpg.add_text("When enabled, uploading a sound file with the same name will replace the existing file.\nWhen disabled, the new file will be renamed (e.g., sound_1.wav) to avoid overwriting.")
+                ALL_TOOLTIP_TAGS.append("tooltip_overwrite_existing")
+                
+                # Status text for upload feedback
+                dpg.add_text("", tag="text_upload_status", show=False, color=[0, 255, 0])
 
 
 def create_main_window(title, window_type="loader"):
@@ -11540,10 +14310,18 @@ def setup_viewport(title, window_type="loader"):
         window_type: "loader" or "cheat" - determines positioning
     """
     # Create viewport (the actual OS window)
+    # Use fixed size for loader window, config size for cheat window
+    if window_type == "loader":
+        viewport_width = 600
+        viewport_height = 400
+    else:
+        viewport_width = Active_Config.get("window_width", WINDOW_WIDTH)
+        viewport_height = Active_Config.get("window_height", WINDOW_HEIGHT)
+    
     dpg.create_viewport(
         title=title, 
-        width=Active_Config.get("window_width", WINDOW_WIDTH), 
-        height=Active_Config.get("window_height", WINDOW_HEIGHT), 
+        width=viewport_width, 
+        height=viewport_height, 
         decorated=False  # No OS title bar/borders
     )
     
@@ -11563,11 +14341,9 @@ def setup_viewport(title, window_type="loader"):
         screen_width = user32.GetSystemMetrics(0)
         screen_height = user32.GetSystemMetrics(1)
         
-        # Calculate center position
-        current_width = Active_Config.get("window_width", WINDOW_WIDTH)
-        current_height = Active_Config.get("window_height", WINDOW_HEIGHT)
-        center_x = (screen_width - current_width) // 2
-        center_y = (screen_height - current_height) // 2
+        # Calculate center position using fixed loader dimensions
+        center_x = (screen_width - 600) // 2
+        center_y = (screen_height - 400) // 2
         
         # Set viewport position
         dpg.set_viewport_pos([center_x, center_y])
@@ -11685,6 +14461,13 @@ def run_window(window_type="loader"):
     # Build UI (titlebar shows user-facing title)
     create_main_window(titlebar_title, window_type)
     
+    # Apply loaded config to UI elements
+    apply_config_to_ui()
+    
+    # Start pre-load config monitor for loader window
+    if window_type == "loader":
+        start_preload_config_monitor()
+    
     # Configure and show viewport (Win32 title used for window lookup)
     setup_viewport(win32_title, window_type)
     
@@ -11711,6 +14494,9 @@ def run_window(window_type="loader"):
         start_rcs_thread()
         start_acs_thread()
         start_hitsound_thread()
+        # Start bhop if enabled
+        if Active_Config.get("bhop_enabled", False):
+            start_bhop_thread()
         # Apply saved colorway theme
         colorway = Active_Config.get("menu_colorway", "Default")
         apply_colorway(colorway)
@@ -11729,9 +14515,10 @@ def run_window(window_type="loader"):
     run_window.esp_key_was_pressed = False
     run_window.exit_key_was_pressed = False
     run_window.aimbot_toggle_key_was_pressed = False
-    run_window.head_only_toggle_key_was_pressed = False
     run_window.rcs_toggle_key_was_pressed = False
     run_window.anti_afk_toggle_key_was_pressed = False
+    run_window.cycle_triggerbot_presets_forwards_key_was_pressed = False
+    run_window.cycle_triggerbot_presets_backwards_key_was_pressed = False
     
     # =============================================================================
     # MAIN RENDER LOOP
@@ -11895,16 +14682,16 @@ def run_window(window_type="loader"):
                                 dpg.set_item_label("btn_bind_acs_cheat", "NONE")
                             except:
                                 pass
+                        elif keybind_listener["target"] == "bhop_key":
+                            Keybinds_Config["bhop_key"] = "none"
+                            try:
+                                dpg.set_item_label("btn_bind_bhop_cheat", "NONE")
+                            except:
+                                pass
                         elif keybind_listener["target"] == "aimbot_toggle_key":
                             Keybinds_Config["aimbot_toggle_key"] = "none"
                             try:
                                 dpg.set_item_label("btn_bind_aimbot_toggle_cheat", "NONE")
-                            except:
-                                pass
-                        elif keybind_listener["target"] == "head_only_toggle_key":
-                            Keybinds_Config["head_only_toggle_key"] = "none"
-                            try:
-                                dpg.set_item_label("btn_bind_head_only_toggle_cheat", "NONE")
                             except:
                                 pass
                         elif keybind_listener["target"] == "rcs_toggle_key":
@@ -11917,6 +14704,18 @@ def run_window(window_type="loader"):
                             Keybinds_Config["anti_afk_toggle_key"] = "none"
                             try:
                                 dpg.set_item_label("btn_bind_anti_afk_toggle_cheat", "NONE")
+                            except:
+                                pass
+                        elif keybind_listener["target"] == "cycle_triggerbot_presets_forwards_key":
+                            Keybinds_Config["cycle_triggerbot_presets_forwards_key"] = "none"
+                            try:
+                                dpg.set_item_label("btn_bind_cycle_triggerbot_presets_forwards_cheat", "NONE")
+                            except:
+                                pass
+                        elif keybind_listener["target"] == "cycle_triggerbot_presets_backwards_key":
+                            Keybinds_Config["cycle_triggerbot_presets_backwards_key"] = "none"
+                            try:
+                                dpg.set_item_label("btn_bind_cycle_triggerbot_presets_backwards_cheat", "NONE")
                             except:
                                 pass
                     else:
@@ -11957,16 +14756,16 @@ def run_window(window_type="loader"):
                                 dpg.set_item_label("btn_bind_acs_cheat", key_name.upper())
                             except:
                                 pass
+                        elif keybind_listener["target"] == "bhop_key":
+                            Keybinds_Config["bhop_key"] = key_name
+                            try:
+                                dpg.set_item_label("btn_bind_bhop_cheat", key_name.upper())
+                            except:
+                                pass
                         elif keybind_listener["target"] == "aimbot_toggle_key":
                             Keybinds_Config["aimbot_toggle_key"] = key_name
                             try:
                                 dpg.set_item_label("btn_bind_aimbot_toggle_cheat", key_name.upper())
-                            except:
-                                pass
-                        elif keybind_listener["target"] == "head_only_toggle_key":
-                            Keybinds_Config["head_only_toggle_key"] = key_name
-                            try:
-                                dpg.set_item_label("btn_bind_head_only_toggle_cheat", key_name.upper())
                             except:
                                 pass
                         elif keybind_listener["target"] == "rcs_toggle_key":
@@ -11981,6 +14780,18 @@ def run_window(window_type="loader"):
                                 dpg.set_item_label("btn_bind_anti_afk_toggle_cheat", key_name.upper())
                             except:
                                 pass
+                        elif keybind_listener["target"] == "cycle_triggerbot_presets_forwards_key":
+                            Keybinds_Config["cycle_triggerbot_presets_forwards_key"] = key_name
+                            try:
+                                dpg.set_item_label("btn_bind_cycle_triggerbot_presets_forwards_cheat", key_name.upper())
+                            except:
+                                pass
+                        elif keybind_listener["target"] == "cycle_triggerbot_presets_backwards_key":
+                            Keybinds_Config["cycle_triggerbot_presets_backwards_key"] = key_name
+                            try:
+                                dpg.set_item_label("btn_bind_cycle_triggerbot_presets_backwards_cheat", key_name.upper())
+                            except:
+                                pass
                     
                     # Save keybinds after change
                     save_keybinds()
@@ -11992,9 +14803,10 @@ def run_window(window_type="loader"):
                     run_window.esp_key_was_pressed = True
                     run_window.exit_key_was_pressed = True
                     run_window.aimbot_toggle_key_was_pressed = True
-                    run_window.head_only_toggle_key_was_pressed = True
                     run_window.rcs_toggle_key_was_pressed = True
                     run_window.anti_afk_toggle_key_was_pressed = True
+                    run_window.cycle_triggerbot_presets_forwards_key_was_pressed = True
+                    run_window.cycle_triggerbot_presets_backwards_key_was_pressed = True
                     break
         
         # Handle menu toggle key for cheat window visibility
@@ -12068,32 +14880,6 @@ def run_window(window_type="loader"):
                         debug_log(f"Aimbot toggled: {'ON' if new_aimbot_state else 'OFF'}", "INFO")
                     run_window.aimbot_toggle_key_was_pressed = aimbot_toggle_key_pressed
         
-        # Handle head-only toggle key
-        if window_type == "cheat" and not keybind_listener["listening"]:
-            head_only_toggle_key = Keybinds_Config.get("head_only_toggle_key", "").lower()
-            
-            # Skip if keybind is set to "none" or empty
-            if head_only_toggle_key and head_only_toggle_key != "none":
-                head_only_toggle_vk_code = KEY_NAME_TO_VK.get(head_only_toggle_key)
-                
-                if head_only_toggle_vk_code:
-                    head_only_toggle_key_pressed = win32api.GetAsyncKeyState(head_only_toggle_vk_code) & 0x8000
-                    if head_only_toggle_key_pressed and not run_window.head_only_toggle_key_was_pressed:
-                        # Key just pressed - toggle head-only mode
-                        current_head_only_state = Active_Config.get("triggerbot_head_only", False)
-                        new_head_only_state = not current_head_only_state
-                        Active_Config["triggerbot_head_only"] = new_head_only_state
-                        if triggerbot_state["settings"]:
-                            triggerbot_state["settings"]["triggerbot_head_only"] = new_head_only_state
-                        save_settings()
-                        # Update checkbox in UI
-                        try:
-                            dpg.set_value("chk_triggerbot_head_only", new_head_only_state)
-                        except:
-                            pass
-                        debug_log(f"Triggerbot head-only mode toggled: {'ON' if new_head_only_state else 'OFF'}", "INFO")
-                    run_window.head_only_toggle_key_was_pressed = head_only_toggle_key_pressed
-        
         # Handle RCS toggle key
         if window_type == "cheat" and not keybind_listener["listening"]:
             rcs_toggle_key = Keybinds_Config.get("rcs_toggle_key", "").lower()
@@ -12148,6 +14934,36 @@ def run_window(window_type="loader"):
                             stop_anti_afk_thread()
                         debug_log(f"Anti-AFK toggled: {'ON' if new_anti_afk_state else 'OFF'}", "INFO")
                     run_window.anti_afk_toggle_key_was_pressed = anti_afk_toggle_key_pressed
+        
+        # Handle cycle triggerbot presets forwards key
+        if window_type == "cheat" and not keybind_listener["listening"]:
+            cycle_triggerbot_presets_forwards_key = Keybinds_Config.get("cycle_triggerbot_presets_forwards_key", "").lower()
+            
+            # Skip if keybind is set to "none" or empty
+            if cycle_triggerbot_presets_forwards_key and cycle_triggerbot_presets_forwards_key != "none":
+                cycle_triggerbot_presets_forwards_vk_code = KEY_NAME_TO_VK.get(cycle_triggerbot_presets_forwards_key)
+                
+                if cycle_triggerbot_presets_forwards_vk_code:
+                    cycle_triggerbot_presets_forwards_key_pressed = win32api.GetAsyncKeyState(cycle_triggerbot_presets_forwards_vk_code) & 0x8000
+                    if cycle_triggerbot_presets_forwards_key_pressed and not run_window.cycle_triggerbot_presets_forwards_key_was_pressed:
+                        # Key just pressed - cycle forwards
+                        cycle_triggerbot_preset(1)
+                    run_window.cycle_triggerbot_presets_forwards_key_was_pressed = cycle_triggerbot_presets_forwards_key_pressed
+        
+        # Handle cycle triggerbot presets backwards key
+        if window_type == "cheat" and not keybind_listener["listening"]:
+            cycle_triggerbot_presets_backwards_key = Keybinds_Config.get("cycle_triggerbot_presets_backwards_key", "").lower()
+            
+            # Skip if keybind is set to "none" or empty
+            if cycle_triggerbot_presets_backwards_key and cycle_triggerbot_presets_backwards_key != "none":
+                cycle_triggerbot_presets_backwards_vk_code = KEY_NAME_TO_VK.get(cycle_triggerbot_presets_backwards_key)
+                
+                if cycle_triggerbot_presets_backwards_vk_code:
+                    cycle_triggerbot_presets_backwards_key_pressed = win32api.GetAsyncKeyState(cycle_triggerbot_presets_backwards_vk_code) & 0x8000
+                    if cycle_triggerbot_presets_backwards_key_pressed and not run_window.cycle_triggerbot_presets_backwards_key_was_pressed:
+                        # Key just pressed - cycle backwards
+                        cycle_triggerbot_preset(-1)
+                    run_window.cycle_triggerbot_presets_backwards_key_was_pressed = cycle_triggerbot_presets_backwards_key_pressed
         
         # Exit Key handling (works in both loader and cheat windows)
         exit_key_name = Keybinds_Config.get("exit_key", "f7")
@@ -12230,6 +15046,11 @@ def initialize_config_folders():
             os.makedirs(KEYBINDS_FOLDER)
             debug_log(f"Created Keybinds folder: {KEYBINDS_FOLDER}", "SUCCESS")
         
+        # Create custom sounds folder
+        if not os.path.exists(CUSTOM_SOUNDS_FOLDER):
+            os.makedirs(CUSTOM_SOUNDS_FOLDER)
+            debug_log(f"Created custom sounds folder: {CUSTOM_SOUNDS_FOLDER}", "SUCCESS")
+        
         debug_log("Config folders initialized", "INFO")
     except Exception as e:
         debug_log(f"Failed to create config folders: {str(e)}", "ERROR")
@@ -12268,6 +15089,9 @@ def cleanup_temp_folder():
     
     # Stop anti-AFK thread if running
     stop_anti_afk_thread()
+    
+    # Stop pre-load config monitor if running
+    stop_preload_config_monitor()
     
     try:
         if os.path.exists(TEMP_FOLDER):
@@ -12343,6 +15167,10 @@ def main():
     
     # Load keybinds from autosave.json or use defaults
     load_keybinds()
+    
+    # Check pygame availability for custom sound support
+    if not PYGAME_AVAILABLE:
+        debug_log("Pygame not available - custom sound formats limited to WAV only", "WARNING")
     
     if SKIP_LOADER:
         # Set loader settings for cheat
