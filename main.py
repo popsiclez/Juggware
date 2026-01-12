@@ -43,10 +43,10 @@ from OpenGL.GL import *
 
 
 # Skip loader flag - set to True to bypass loader and load cheat directly
-SKIP_LOADER = True
+SKIP_LOADER = False
 
 # Graphics reset flag - set to True to reset graphics before starting cheat
-RESET_GRAPHICS = False
+RESET_GRAPHICS = True
 
 # Delay in seconds before starting cheat after graphics reset
 RESET_GRAPHICS_DELAY = 10
